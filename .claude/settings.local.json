@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(pip install:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npm run:*)",
+      "Bash(node test-sprint1.js)"
     ]
   }
 }
