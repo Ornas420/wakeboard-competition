@@ -1,52 +1,67 @@
 import { Router } from 'express';
 import db from '../db/schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { generateHeats } from '../services/heatGeneration.js';
 
 const router = Router();
 
-// Get heats for a competition/category
-router.get('/competition/:competitionId', (req, res) => {
-  const { category_id } = req.query;
-  let query = `
-    SELECT h.*, json_group_array(json_object(
-      'id', ha.id, 'user_id', ha.user_id, 'ride_order', ha.ride_order
-    )) as athletes
-    FROM heats h
-    LEFT JOIN heat_athletes ha ON h.id = ha.heat_id
-    WHERE h.competition_id = ?
-  `;
-  const params = [req.params.competitionId];
+// GET /heats/competition/:id — list heats grouped by stage
+router.get('/competition/:competitionId', authenticate, (req, res) => {
+  const stages = db.prepare(`
+    SELECT id, stage_type, stage_order, status
+    FROM stage WHERE competition_id = ?
+    ORDER BY stage_order
+  `).all(req.params.competitionId);
 
-  if (category_id) {
-    query += ' AND h.category_id = ?';
-    params.push(category_id);
+  const result = stages.map((stage) => {
+    const heats = db.prepare(`
+      SELECT id, heat_number, status, published
+      FROM heat WHERE stage_id = ?
+      ORDER BY heat_number
+    `).all(stage.id);
+
+    const heatsWithAthletes = heats.map((heat) => {
+      const athletes = db.prepare(`
+        SELECT ha.athlete_id, u.name, ha.run_order
+        FROM heat_athlete ha
+        JOIN user u ON ha.athlete_id = u.id
+        WHERE ha.heat_id = ?
+        ORDER BY ha.run_order
+      `).all(heat.id);
+
+      return { ...heat, athletes };
+    });
+
+    return { ...stage, heats: heatsWithAthletes };
+  });
+
+  res.json({ stages: result });
+});
+
+// POST /heats/generate — ADMIN only (stub — full IWWF logic in Sprint 3)
+router.post('/generate', authenticate, authorize('ADMIN'), (req, res) => {
+  res.status(501).json({ error: 'Heat generation not yet implemented — Sprint 3' });
+});
+
+// PATCH /heats/:id/status — ADMIN or HEAD_JUDGE
+router.patch('/:id/status', authenticate, authorize('ADMIN', 'HEAD_JUDGE'), (req, res) => {
+  const { status } = req.body;
+  const heat = db.prepare('SELECT * FROM heat WHERE id = ?').get(req.params.id);
+  if (!heat) return res.status(404).json({ error: 'Heat not found' });
+
+  // Validate status transitions
+  const validTransitions = {
+    'PENDING': ['OPEN'],
+    'OPEN': ['HEAD_REVIEW'],
+    'HEAD_REVIEW': ['APPROVED'],
+    'APPROVED': ['CLOSED', 'HEAD_REVIEW'],
+    'CLOSED': []
+  };
+
+  if (!validTransitions[heat.status]?.includes(status)) {
+    return res.status(400).json({ error: `Invalid status transition: ${heat.status} → ${status}` });
   }
 
-  query += ' GROUP BY h.id ORDER BY h.round, h.heat_number';
-  const heats = db.prepare(query).all(...params);
-
-  res.json(heats.map((h) => ({
-    ...h,
-    athletes: JSON.parse(h.athletes).filter((a) => a.id !== null),
-  })));
-});
-
-// Generate heats (admin only)
-router.post('/generate', authenticate, authorize('admin'), (req, res) => {
-  const { competition_id, category_id, athletes_per_heat } = req.body;
-  const heats = generateHeats(competition_id, category_id, athletes_per_heat || 4);
-  res.status(201).json(heats);
-});
-
-// Update heat status
-router.patch('/:id/status', authenticate, authorize('admin', 'judge'), (req, res) => {
-  const { status } = req.body;
-  db.prepare('UPDATE heats SET status = ? WHERE id = ?').run(status, req.params.id);
-
-  const io = req.app.get('io');
-  io.emit('heat:status', { id: req.params.id, status });
-
+  db.prepare('UPDATE heat SET status = ? WHERE id = ?').run(status, req.params.id);
   res.json({ id: req.params.id, status });
 });
 

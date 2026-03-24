@@ -1,44 +1,58 @@
 import { Router } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import db from '../db/schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { calculateTotal, getLeaderboard } from '../services/scoringEngine.js';
 
 const router = Router();
 
-// Get scores for a heat
-router.get('/heat/:heatId', (req, res) => {
-  const scores = db.prepare(`
-    SELECT s.*, u.name as athlete_name, j.name as judge_name
-    FROM scores s
-    JOIN users u ON s.user_id = u.id
-    JOIN users j ON s.judge_id = j.id
-    WHERE s.heat_id = ?
+// GET /scores/heat/:id — JUDGE, HEAD_JUDGE, ADMIN
+router.get('/heat/:heatId', authenticate, authorize('JUDGE', 'HEAD_JUDGE', 'ADMIN'), (req, res) => {
+  const runs = db.prepare(`
+    SELECT ar.id as athlete_run_id, ar.athlete_id, u.name, ar.run_number,
+           ar.computed_score, ar.scores_submitted
+    FROM athlete_run ar
+    JOIN user u ON ar.athlete_id = u.id
+    WHERE ar.heat_id = ?
+    ORDER BY ar.athlete_id, ar.run_number
   `).all(req.params.heatId);
-  res.json(scores);
+
+  const result = runs.map((run) => {
+    const scores = db.prepare(`
+      SELECT js.judge_id, js.score, js.correction_requested, js.correction_note
+      FROM judge_score js
+      WHERE js.athlete_run_id = ?
+    `).all(run.athlete_run_id);
+
+    return { ...run, scores };
+  });
+
+  res.json(result);
 });
 
-// Submit a score (judge only)
-router.post('/', authenticate, authorize('judge', 'admin'), (req, res) => {
-  const { heat_id, user_id, execution, difficulty, intensity, composition } = req.body;
-  const id = uuidv4();
-  const total = calculateTotal({ execution, difficulty, intensity, composition });
-
-  db.prepare(`
-    INSERT INTO scores (id, heat_id, user_id, judge_id, execution, difficulty, intensity, composition, total)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, heat_id, user_id, req.user.id, execution, difficulty, intensity, composition, total);
-
-  const io = req.app.get('io');
-  io.emit('score:new', { heat_id, user_id, total });
-
-  res.status(201).json({ id, heat_id, user_id, total });
+// POST /scores — JUDGE or HEAD_JUDGE (stub — full logic in Sprint 4)
+router.post('/', authenticate, authorize('JUDGE', 'HEAD_JUDGE'), (req, res) => {
+  res.status(501).json({ error: 'Score submission not yet implemented — Sprint 4' });
 });
 
-// Get leaderboard for a competition category
-router.get('/leaderboard/:competitionId/:categoryId', (req, res) => {
-  const leaderboard = getLeaderboard(req.params.competitionId, req.params.categoryId);
-  res.json(leaderboard);
+// GET /scores/leaderboard/:competitionId — public
+router.get('/leaderboard/:competitionId', (req, res) => {
+  // Get the latest active/completed stage
+  const stage = db.prepare(`
+    SELECT s.id, s.stage_type FROM stage s
+    WHERE s.competition_id = ? AND s.status IN ('ACTIVE', 'COMPLETED')
+    ORDER BY s.stage_order DESC LIMIT 1
+  `).get(req.params.competitionId);
+
+  if (!stage) return res.json({ stage: null, rankings: [] });
+
+  const rankings = db.prepare(`
+    SELECT sr.athlete_id, u.name, sr.best_score as score, sr.rank
+    FROM stage_ranking sr
+    JOIN user u ON sr.athlete_id = u.id
+    WHERE sr.stage_id = ?
+    ORDER BY sr.rank
+  `).all(stage.id);
+
+  res.json({ stage, rankings });
 });
 
 export default router;

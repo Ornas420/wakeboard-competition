@@ -5,44 +5,97 @@ import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = Router();
 
-// List all competitions
+// GET /competitions — public list
 router.get('/', (req, res) => {
-  const competitions = db.prepare('SELECT * FROM competitions ORDER BY date DESC').all();
-  res.json(competitions);
+  const competitions = db.prepare(`
+    SELECT c.*,
+      (SELECT COUNT(*) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count
+    FROM competition c
+    ORDER BY c.date DESC
+  `).all();
+
+  res.json({ competitions });
 });
 
-// Get single competition with categories
+// GET /competitions/:id — public detail
 router.get('/:id', (req, res) => {
-  const competition = db.prepare('SELECT * FROM competitions WHERE id = ?').get(req.params.id);
+  const competition = db.prepare(`
+    SELECT c.*,
+      (SELECT COUNT(*) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count
+    FROM competition c WHERE c.id = ?
+  `).get(req.params.id);
+
   if (!competition) return res.status(404).json({ error: 'Competition not found' });
 
-  const categories = db.prepare('SELECT * FROM categories WHERE competition_id = ?').all(req.params.id);
-  res.json({ ...competition, categories });
+  const stages = db.prepare(`
+    SELECT s.id, s.stage_type, s.stage_order, s.status,
+      (SELECT COUNT(*) FROM heat h WHERE h.stage_id = s.id) as heat_count
+    FROM stage s WHERE s.competition_id = ?
+    ORDER BY s.stage_order
+  `).all(req.params.id);
+
+  res.json({ ...competition, stages });
 });
 
-// Create competition (admin only)
-router.post('/', authenticate, authorize('admin'), (req, res) => {
-  const { name, date, location, categories } = req.body;
+// POST /competitions — ADMIN only
+router.post('/', authenticate, authorize('ADMIN'), (req, res) => {
+  const { name, date, location, division, description, timetable, judge_count } = req.body;
+
+  if (!name || !date || !location) {
+    return res.status(400).json({ error: 'Name, date, and location are required' });
+  }
+
+  if (judge_count !== undefined && (judge_count < 3 || judge_count > 5)) {
+    return res.status(400).json({ error: 'Judge count must be between 3 and 5' });
+  }
+
   const id = uuidv4();
+  db.prepare(`
+    INSERT INTO competition (id, name, date, location, division, description, timetable, judge_count, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, date, location, division || null, description || null, timetable || null, judge_count || 3, req.user.id);
 
-  db.prepare('INSERT INTO competitions (id, name, date, location, created_by) VALUES (?, ?, ?, ?, ?)')
-    .run(id, name, date, location, req.user.id);
+  res.status(201).json({ id, name, status: 'DRAFT' });
+});
 
-  if (categories?.length) {
-    const insertCat = db.prepare('INSERT INTO categories (id, competition_id, name) VALUES (?, ?, ?)');
-    for (const cat of categories) {
-      insertCat.run(uuidv4(), id, cat);
+// PATCH /competitions/:id — ADMIN only
+router.patch('/:id', authenticate, authorize('ADMIN'), (req, res) => {
+  const competition = db.prepare('SELECT * FROM competition WHERE id = ?').get(req.params.id);
+  if (!competition) return res.status(404).json({ error: 'Competition not found' });
+
+  const allowedFields = ['name', 'date', 'location', 'division', 'description', 'timetable', 'video_url', 'status', 'judge_count'];
+  const updates = [];
+  const values = [];
+
+  for (const field of allowedFields) {
+    if (req.body[field] !== undefined) {
+      // judge_count locked once heats generated
+      if (field === 'judge_count') {
+        const hasHeats = db.prepare(
+          'SELECT 1 FROM stage s JOIN heat h ON h.stage_id = s.id WHERE s.competition_id = ? LIMIT 1'
+        ).get(req.params.id);
+        if (hasHeats) {
+          return res.status(400).json({ error: 'judge_count is locked once heats are generated' });
+        }
+      }
+      // date locked once ACTIVE
+      if (field === 'date' && competition.status === 'ACTIVE') {
+        return res.status(400).json({ error: 'Date is locked once competition is ACTIVE' });
+      }
+      updates.push(`${field} = ?`);
+      values.push(req.body[field]);
     }
   }
 
-  res.status(201).json({ id, name, date, location, status: 'draft' });
-});
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
 
-// Update competition status
-router.patch('/:id/status', authenticate, authorize('admin'), (req, res) => {
-  const { status } = req.body;
-  db.prepare('UPDATE competitions SET status = ? WHERE id = ?').run(status, req.params.id);
-  res.json({ id: req.params.id, status });
+  values.push(req.params.id);
+  db.prepare(`UPDATE competition SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+  const updated = db.prepare('SELECT * FROM competition WHERE id = ?').get(req.params.id);
+  res.json(updated);
 });
 
 export default router;

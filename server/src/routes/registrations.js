@@ -5,39 +5,66 @@ import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = Router();
 
-// List registrations for a competition
-router.get('/competition/:competitionId', (req, res) => {
+// GET /registrations/competition/:id — ADMIN, HEAD_JUDGE
+router.get('/competition/:competitionId', authenticate, authorize('ADMIN', 'HEAD_JUDGE'), (req, res) => {
   const registrations = db.prepare(`
-    SELECT r.*, u.name as athlete_name, c.name as category_name
-    FROM registrations r
-    JOIN users u ON r.user_id = u.id
-    JOIN categories c ON r.category_id = c.id
+    SELECT r.id, r.athlete_id, u.name, r.status, r.seed, r.registered_at
+    FROM registration r
+    JOIN user u ON r.athlete_id = u.id
     WHERE r.competition_id = ?
+    ORDER BY r.registered_at
   `).all(req.params.competitionId);
+
   res.json(registrations);
 });
 
-// Register for a competition
-router.post('/', authenticate, (req, res) => {
-  const { competition_id, category_id } = req.body;
-  const id = uuidv4();
+// POST /registrations — ATHLETE only
+router.post('/', authenticate, authorize('ATHLETE'), (req, res) => {
+  const { competition_id } = req.body;
 
+  if (!competition_id) {
+    return res.status(400).json({ error: 'competition_id is required' });
+  }
+
+  // Check competition exists and is DRAFT
+  const competition = db.prepare('SELECT status FROM competition WHERE id = ?').get(competition_id);
+  if (!competition) return res.status(404).json({ error: 'Competition not found' });
+  if (competition.status !== 'DRAFT') {
+    return res.status(400).json({ error: 'Registration is closed' });
+  }
+
+  // Check duplicate
   const existing = db.prepare(
-    'SELECT id FROM registrations WHERE competition_id = ? AND category_id = ? AND user_id = ?'
-  ).get(competition_id, category_id, req.user.id);
+    'SELECT id FROM registration WHERE competition_id = ? AND athlete_id = ?'
+  ).get(competition_id, req.user.id);
+  if (existing) return res.status(409).json({ error: 'Athlete already registered' });
 
-  if (existing) return res.status(409).json({ error: 'Already registered' });
+  const id = uuidv4();
+  db.prepare(
+    'INSERT INTO registration (id, competition_id, athlete_id, status) VALUES (?, ?, ?, ?)'
+  ).run(id, competition_id, req.user.id, 'CONFIRMED');
 
-  db.prepare('INSERT INTO registrations (id, competition_id, category_id, user_id) VALUES (?, ?, ?, ?)')
-    .run(id, competition_id, category_id, req.user.id);
-
-  res.status(201).json({ id, competition_id, category_id, user_id: req.user.id, status: 'pending' });
+  res.status(201).json({
+    id,
+    competition_id,
+    athlete_id: req.user.id,
+    status: 'CONFIRMED',
+    registered_at: new Date().toISOString()
+  });
 });
 
-// Update registration status (admin only)
-router.patch('/:id/status', authenticate, authorize('admin'), (req, res) => {
+// PATCH /registrations/:id — ADMIN only
+router.patch('/:id', authenticate, authorize('ADMIN'), (req, res) => {
   const { status } = req.body;
-  db.prepare('UPDATE registrations SET status = ? WHERE id = ?').run(status, req.params.id);
+
+  if (!status || !['PENDING', 'CONFIRMED', 'WITHDRAWN'].includes(status)) {
+    return res.status(400).json({ error: 'Status must be PENDING, CONFIRMED, or WITHDRAWN' });
+  }
+
+  const reg = db.prepare('SELECT * FROM registration WHERE id = ?').get(req.params.id);
+  if (!reg) return res.status(404).json({ error: 'Registration not found' });
+
+  db.prepare('UPDATE registration SET status = ? WHERE id = ?').run(status, req.params.id);
   res.json({ id: req.params.id, status });
 });
 

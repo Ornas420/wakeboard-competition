@@ -41,7 +41,7 @@ io.on('connection', (socket) => {
 // Initialize DB and start server
 initDb();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
