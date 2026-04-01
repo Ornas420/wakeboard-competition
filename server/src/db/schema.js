@@ -67,7 +67,8 @@ export function initDb() {
       runs_per_athlete INTEGER NOT NULL DEFAULT 2,
       athletes_advance INTEGER,
       status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'ACTIVE', 'COMPLETED')),
-      distribution TEXT NOT NULL CHECK(distribution IN ('SNAKE', 'LADDER', 'STEPLADDER'))
+      distribution TEXT NOT NULL CHECK(distribution IN ('SNAKE', 'LADDER', 'STEPLADDER')),
+      reversed INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS heat (
@@ -77,6 +78,7 @@ export function initDb() {
       status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'OPEN', 'HEAD_REVIEW', 'APPROVED', 'CLOSED')),
       published INTEGER NOT NULL DEFAULT 0,
       manually_adjusted INTEGER NOT NULL DEFAULT 0,
+      run2_reorder INTEGER NOT NULL DEFAULT 0,
       scheduled_time TEXT
     );
 

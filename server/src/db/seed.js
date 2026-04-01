@@ -2,6 +2,7 @@ import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import db, { initDb } from './schema.js';
+import { generateHeatsForDivision } from '../services/heatGeneration.js';
 
 async function seed() {
   // Drop all tables and recreate
@@ -116,6 +117,16 @@ async function seed() {
     insertReg.run(uuidv4(), compId, divJuniorId, athleteId, 'CONFIRMED');
   });
 
+  // --- Generate heats for Open Men (7 athletes → 3-round format) ---
+  try {
+    const heatResult = generateHeatsForDivision(divOpenId);
+    console.log(`  Heat generation: ${heatResult.format}`);
+    console.log(`    ${heatResult.stages_created} stages, ${heatResult.heats_created} heats created`);
+  } catch (err) {
+    console.error('  Heat generation failed:', err.message);
+  }
+
+  console.log('');
   console.log('Database seeded successfully');
   console.log(`  Admin:      admin@wakeboard.lt / password123`);
   console.log(`  Head Judge: headjudge@wakeboard.lt / password123`);
@@ -123,7 +134,7 @@ async function seed() {
   console.log(`  Athletes:   athlete1@wakeboard.lt ... athlete10@wakeboard.lt / password123`);
   console.log(`  Competition: ${compId} (DRAFT)`);
   console.log(`  Divisions:  Open Men (${divOpenId}), U19 Junior Men (${divJuniorId})`);
-  console.log(`  Open Men: 7 athletes, U19 Junior Men: 5 athletes (2 overlap)`);
+  console.log(`  Open Men: 7 athletes (heats generated), U19 Junior Men: 5 athletes (no heats)`);
   process.exit(0);
 }
 

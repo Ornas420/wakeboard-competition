@@ -7,6 +7,7 @@ import CompetitionForm from '../../components/admin/CompetitionForm';
 import StaffSection from '../../components/admin/StaffSection';
 import DivisionsSection from '../../components/admin/DivisionsSection';
 import RegistrationsSection from '../../components/admin/RegistrationsSection';
+import HeatsSection from '../../components/admin/HeatsSection';
 
 export default function AdminCompetitionDetail() {
   const { id } = useParams();
@@ -139,6 +140,11 @@ export default function AdminCompetitionDetail() {
       {/* Section D: Registrations */}
       <div className="mb-6 rounded-lg border bg-white p-6 shadow-sm">
         <RegistrationsSection competitionId={id} />
+      </div>
+
+      {/* Section E: Heats */}
+      <div className="mb-6 rounded-lg border bg-white p-6 shadow-sm">
+        <HeatsSection competitionId={id} divisions={comp?.divisions || []} />
       </div>
     </div>
   );

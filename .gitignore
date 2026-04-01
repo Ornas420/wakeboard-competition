@@ -2,6 +2,14 @@ node_modules
 .env
 dist
 *.db
+*.db-shm
+*.db-wal
 PLANNING.md
 CLAUDE.md
-WakeBoard_MASTER.pdf
+
+# Documents and extracted images
+*.pdf
+*.png
+
+# Claude Code internal
+.claude/

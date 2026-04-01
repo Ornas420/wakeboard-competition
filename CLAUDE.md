@@ -18,23 +18,51 @@ leaderboards. Built as a bachelor's thesis project at VGTU.
 
 ```
 /client       React frontend
+  /src
+    api.js              Fetch wrapper with auth headers
+    App.jsx             Routes + AuthProvider
+    context/
+      AuthContext.jsx    JWT auth state management
+    components/
+      Navbar.jsx
+      StatusBadge.jsx
+      LoadingSpinner.jsx
+      ProtectedRoute.jsx
+      admin/
+        CompetitionForm.jsx
+        StaffSection.jsx
+        DivisionsSection.jsx
+        RegistrationsSection.jsx
+        HeatsSection.jsx      Sprint 3: heat generation UI
+        StagePanel.jsx        Sprint 3: renders stage with heats
+        HeatCard.jsx          Sprint 3: renders single heat
+    pages/
+      HomePage.jsx
+      CompetitionDetailPage.jsx
+      LoginPage.jsx
+      RegisterPage.jsx
+      admin/
+        AdminDashboard.jsx
+        AdminCompetitionDetail.jsx
+
 /server       Node.js backend
   /src
     index.js            Express entry + Socket.IO setup
     db/
-      schema.js         All CREATE TABLE statements
-      seed.js           Test data for development
+      schema.js         All CREATE TABLE statements (12 tables)
+      seed.js           Test data + heat generation for dev
     routes/
-      auth.js
-      competitions.js
-      registrations.js
-      heats.js
-      scores.js
+      auth.js           Register, login, create-staff
+      competitions.js   CRUD + status + staff management
+      divisions.js      Division CRUD per competition
+      registrations.js  Per-division registration
+      heats.js          Heat generation, publish, athlete swap
+      scores.js         Score submission + leaderboard (stubs for Sprint 4)
     middleware/
       auth.js           JWT verify + role guard
     services/
-      heatGeneration.js IWWF heat generation logic
-      scoringEngine.js  Score aggregation + ranking
+      heatGeneration.js IWWF heat generation engine (Sprint 3 — COMPLETE)
+      scoringEngine.js  Score aggregation + ranking (Sprint 4 — STUB)
 ```
 
 ## Roles
@@ -51,38 +79,70 @@ Public routes (no auth): `GET /competitions`, `GET /competitions/:id`,
 
 ## Database rules
 
-- All primary keys are UUID (TEXT). Use `uuid` package: `const { v4: uuidv4 } = require('uuid')`
+- All primary keys are UUID (TEXT). Use `uuid` package: `import { v4 as uuidv4 } from 'uuid'`
 - Enums stored as TEXT with CHECK constraints
 - Never use auto-increment IDs
-- Unique constraints: `registration(competition_id, athlete_id)` and `judge_score(athlete_run_id, judge_id)`
+- Unique constraints: `registration(division_id, athlete_id)` and `judge_score(athlete_run_id, judge_id)`
 - All score math happens in SQL with ROUND(AVG(score), 2) — never in JavaScript
+- ES modules throughout server (`import`/`export`, `"type": "module"` in package.json)
 
-## The 11 tables
+## The 12 tables
 
 ```
-user, competition, competition_staff, registration,
+user, competition, division, competition_staff, registration,
 stage, heat, heat_athlete, athlete_run, judge_score,
 heat_result, stage_ranking
 ```
 
-Key relationship: `heat → athlete_run → judge_score`
-- 6 athletes × 2 runs = 12 athlete_run rows per heat
-- Each athlete_run gets one judge_score row per judge
-- computed_score on athlete_run is set automatically when scores_submitted = judge_count
+Key relationships:
+- `competition 1──* division 1──* registration`
+- `division 1──* stage 1──* heat 1──* heat_athlete`
+- `heat 1──* athlete_run 1──* judge_score`
+- `heat 1──* heat_result` (written at APPROVED)
+- `stage 1──* stage_ranking` (updated at each APPROVED)
 
-## Heat generation — IWWF format (hardcode exactly, never infer)
+Important columns added in Sprint 3:
+- `stage.reversed` — 1 for QF/Semi/Finals (best-ranked rides last)
+- `heat.run2_reorder` — 1 for Finals only (Run 2 order based on Run 1 scores)
+
+## Multi-Division System
+
+Competitions have multiple divisions (Open Men, Veterans, Junior, etc.).
+Each division runs its own independent stage/heat pipeline.
+Athletes can register for multiple divisions in the same competition.
+Staff (judges, head judge) are assigned at competition level, not per division.
+Registration unique constraint: `(division_id, athlete_id)`.
+
+## Heat Generation — IWWF Format (from official IWWF Cablewakeboard document)
+
+The complete lookup table is hardcoded in `server/src/services/heatGeneration.js`.
+Max 6 athletes per heat. No upper limit on athletes (extends algorithmically for 55+).
 
 ```
-3–6 athletes:   QUALIFICATION(1 heat, all advance, 2 runs) + FINAL(1,—,2)
-7–10 athletes:  QUALIFICATION(2 heats, top 4, 2 runs) + LCQ(1, top 2, 1 run) + FINAL(1,—,2)
-11–18 athletes: QUALIFICATION(2-3 heats, top 4, 2 runs) + LCQ(2, top 2, 1 run)
-                + SEMIFINAL(2, top 3, 2 runs) + FINAL(1,—,2)
-19–36 athletes: QUALIFICATION(4-6 heats, 8-16, 2 runs) + LCQ(4, 8, 1 run)
-                + QUARTERFINAL(4, 12, 2 runs) + SEMIFINAL(2, 6, 2 runs) + FINAL(1,—,2)
+3–6:   QUAL(1) + FINAL(1)
+7–10:  QUAL(2, top 4) + LCQ(1, top 2, 1 run, LADDER) + FINAL(1)
+11–12: QUAL(2, top 4) + LCQ(2, top 2, 1 run, STEPLADDER) + FINAL(1)
+13–18: QUAL(3, top 3) + LCQ(3, top 3, 1 run, STEPLADDER) + FINAL(1)
+19–20: QUAL(4, top 8) + LCQ(2, top 4) + SEMI(2, top 6) + FINAL(1)
+21–24: QUAL(4, top 8) + LCQ(4, top 4) + SEMI(2, top 6) + FINAL(1)
+25–36: QUAL(6, top 6) + LCQ(6, top 6) + SEMI(2, top 6) + FINAL(1)
+37–40: QUAL(8, top 16) + LCQ(4, top 8) + QF(4, top 12) + SEMI(2, top 6) + FINAL(1)
+41–48: QUAL(8, top 16) + LCQ(8, top 8) + QF(4, top 12) + SEMI(2, top 6) + FINAL(1)
+49–54: QUAL(9, top 18) + LCQ(6, top 6) + QF(4, top 12) + SEMI(2, top 6) + FINAL(1)
+55+:   Extended pattern — more qual heats, adjust LCQ heats, QF/Semi/Final fixed
 ```
 
-Max 6 athletes per heat. Distribution: SNAKE for qualification, LADDER for
-semi/finals, STEPLADDER for LCQ.
+Distribution algorithms:
+- **SNAKE** (Qualification): zigzag seeding — top seeds spread evenly across heats
+- **LADDER** (Finals 3-10, LCQ 7-10): sequential, best-ranked rides last
+- **STEPLADDER** (LCQ 11+, QF, Semi): weakest in earliest heats, strongest in latest
+
+At generation time, only QUALIFICATION heats get athletes assigned.
+LCQ/Semi/QF/Final heats are created as empty shells — populated after preceding stage completes.
+
+### Finals Run 2 Reorder (Finals ONLY)
+After Run 1 scores are computed, athletes are reordered for Run 2:
+lowest Run 1 score rides first, highest rides last. This is marked by `heat.run2_reorder = 1`.
 
 ## Scoring rules
 
@@ -103,6 +163,7 @@ PENDING → OPEN → HEAD_REVIEW → APPROVED → CLOSED
 ```
 
 CORRECTION_REQUESTED is a sub-state of HEAD_REVIEW (judge must fix a flagged score).
+APPROVED → HEAD_REVIEW is valid (rollback before CLOSED).
 No other transitions are valid. Enforce in the route handlers.
 
 ## Head Judge approval
@@ -154,11 +215,10 @@ correction:requested { judge_id, athlete_run_id, note }  — sent to that judge 
 - Never add DNS/DNF status fields — judges enter 0 for no-shows
 - Never build automatic tiebreak logic — Head Judge drags ranking manually
 - Never let frontend be the only validation — backend must validate independently
-- Never push directly to main — always use a feature branch + PR
 
 ## Coding style
 
-- ES modules in client (import/export), CommonJS in server (require)
+- ES modules everywhere: `import`/`export` (both client and server)
 - Async/await everywhere, no raw Promise chains
 - Route files export a router, import into index.js
 - Services contain business logic — routes are thin (validate → call service → respond)
@@ -171,7 +231,6 @@ correction:requested { judge_id, athlete_run_id, note }  — sent to that judge 
 PORT=3001
 JWT_SECRET=your_secret_here
 DB_PATH=./wakeboard.db
-CLIENT_URL=http://localhost:5173
 ```
 
 ## Dev commands
@@ -190,8 +249,50 @@ cd server && npm run dev
 cd server && node src/db/seed.js
 ```
 
-## Current sprint
+## Sprint progress
 
-**Sprint 1** — Scaffold, DB schema, JWT auth with all 4 roles.
-See the master planning document (WakeBoard_MASTER.docx) for full sprint details,
-API shapes, edge cases, and Claude Code prompts for each feature.
+### Sprint 1 (DONE) — Scaffold, DB schema, JWT auth
+- Monorepo with npm workspaces
+- 12-table SQLite schema with UUIDs, CHECK constraints, indexes
+- JWT auth: register, login, /auth/me, create-staff
+- Role middleware (ADMIN, HEAD_JUDGE, JUDGE, ATHLETE)
+- Seed script
+
+### Sprint 2 (DONE) — Public pages, admin, divisions, registration
+- Public home page + competition detail
+- Multi-division system (division table, per-division registration)
+- Admin dashboard + competition management (CRUD, status, staff, divisions, registrations)
+- Athlete registration per division
+- Login/Register pages, Navbar, AuthContext, ProtectedRoute
+
+### Sprint 3 (DONE) — IWWF heat generation engine
+- Full IWWF format lookup table (3-54 athletes + algorithmic extension for 55+)
+- Snake, Ladder, Stepladder distribution algorithms
+- `generateHeatsForDivision(divisionId)` — validates, creates stages/heats/athletes/runs
+- `deleteHeatsForDivision(divisionId)` — FK-safe cleanup
+- Routes: POST /heats/generate, DELETE /heats/division/:id, PATCH /publish-stage, PATCH /athletes
+- Schema additions: stage.reversed, heat.run2_reorder
+- Admin UI: HeatsSection, StagePanel, HeatCard components
+- Seed data generates heats for Open Men division
+
+### Sprint 4 (NEXT) — Scoring engine + Head Judge approval + manual reorder
+See WakeBoard_MASTER.pdf sections 7.3 and 7.4 for exact prompts.
+Key features:
+- POST /scores — upsert judge_score, trigger computed_score
+- Heat lifecycle: review, approve (with manual reorder), close
+- Stage progression: advance athletes to next stage after all heats closed
+- Populate LCQ/Semi/QF/Final heats using ladder/stepladder distribution
+- Finals Run 2 reorder (heat.run2_reorder = 1)
+- Socket.IO events: score:computed, heat:approved, leaderboard:updated
+- Judge scoring UI, Head Judge approval UI
+
+## Test accounts (after seeding)
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@wakeboard.lt | password123 |
+| Head Judge | headjudge@wakeboard.lt | password123 |
+| Judge 1 | judge1@wakeboard.lt | password123 |
+| Judge 2 | judge2@wakeboard.lt | password123 |
+| Judge 3 | judge3@wakeboard.lt | password123 |
+| Athletes | athlete1-10@wakeboard.lt | password123 |
