@@ -6,11 +6,21 @@ const router = Router();
 
 // GET /heats/competition/:id — list heats grouped by stage
 router.get('/competition/:competitionId', authenticate, (req, res) => {
-  const stages = db.prepare(`
-    SELECT id, stage_type, stage_order, status
-    FROM stage WHERE competition_id = ?
-    ORDER BY stage_order
-  `).all(req.params.competitionId);
+  let stageQuery = `
+    SELECT s.id, s.stage_type, s.stage_order, s.status, s.division_id, d.name as division_name
+    FROM stage s
+    JOIN division d ON s.division_id = d.id
+    WHERE s.competition_id = ?
+  `;
+  const params = [req.params.competitionId];
+
+  if (req.query.division_id) {
+    stageQuery += ' AND s.division_id = ?';
+    params.push(req.query.division_id);
+  }
+
+  stageQuery += ' ORDER BY d.display_order, s.stage_order';
+  const stages = db.prepare(stageQuery).all(...params);
 
   const result = stages.map((stage) => {
     const heats = db.prepare(`
@@ -38,6 +48,8 @@ router.get('/competition/:competitionId', authenticate, (req, res) => {
 });
 
 // POST /heats/generate — ADMIN only (stub — full IWWF logic in Sprint 3)
+// Body: { division_id } — generates stages and heats for a single division
+// Uses CONFIRMED registrations from that division only
 router.post('/generate', authenticate, authorize('ADMIN'), (req, res) => {
   res.status(501).json({ error: 'Heat generation not yet implemented — Sprint 3' });
 });

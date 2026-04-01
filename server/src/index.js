@@ -9,6 +9,7 @@ import competitionRoutes from './routes/competitions.js';
 import registrationRoutes from './routes/registrations.js';
 import heatRoutes from './routes/heats.js';
 import scoreRoutes from './routes/scores.js';
+import divisionRoutes from './routes/divisions.js';
 import { initDb } from './db/schema.js';
 
 const app = express();
@@ -26,6 +27,7 @@ app.set('io', io);
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/competitions', competitionRoutes);
+app.use('/api/competitions', divisionRoutes);
 app.use('/api/registrations', registrationRoutes);
 app.use('/api/heats', heatRoutes);
 app.use('/api/scores', scoreRoutes);

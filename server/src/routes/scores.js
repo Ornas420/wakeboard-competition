@@ -33,14 +33,19 @@ router.post('/', authenticate, authorize('JUDGE', 'HEAD_JUDGE'), (req, res) => {
   res.status(501).json({ error: 'Score submission not yet implemented — Sprint 4' });
 });
 
-// GET /scores/leaderboard/:competitionId — public
+// GET /scores/leaderboard/:competitionId?division_id= — public
 router.get('/leaderboard/:competitionId', (req, res) => {
-  // Get the latest active/completed stage
+  const { division_id } = req.query;
+  if (!division_id) {
+    return res.status(400).json({ error: 'division_id query parameter is required' });
+  }
+
+  // Get the latest active/completed stage for this division
   const stage = db.prepare(`
     SELECT s.id, s.stage_type FROM stage s
-    WHERE s.competition_id = ? AND s.status IN ('ACTIVE', 'COMPLETED')
+    WHERE s.division_id = ? AND s.status IN ('ACTIVE', 'COMPLETED')
     ORDER BY s.stage_order DESC LIMIT 1
-  `).get(req.params.competitionId);
+  `).get(division_id);
 
   if (!stage) return res.json({ stage: null, rankings: [] });
 

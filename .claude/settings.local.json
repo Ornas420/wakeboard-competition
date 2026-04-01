@@ -5,7 +5,20 @@
       "Bash(pip install:*)",
       "Bash(python:*)",
       "Bash(npm run:*)",
-      "Bash(node test-sprint1.js)"
+      "Bash(node test-sprint1.js)",
+      "Bash(node src/db/seed.js)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(where npm:*)",
+      "Bash(npx vite:*)",
+      "Bash(curl -s http://localhost:3001/api/competitions)",
+      "Bash(curl -s http://localhost:5173/api/competitions)",
+      "Bash(curl -s -X POST http://localhost:5173/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"email\"\"\"\":\"\"\"\"admin@wakeboard.lt\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"password123\"\"\"\"}')",
+      "Bash(node -e \":*)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3001\")",
+      "Bash(taskkill /F /PID 27428)",
+      "Bash(taskkill //F //PID 27428)",
+      "Bash(curl -s http://localhost:3001/api/competitions/e671cf26-911e-4cc7-83cf-ed8c5ab9b6ba)"
     ]
   }
 }

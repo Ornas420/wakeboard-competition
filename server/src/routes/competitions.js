@@ -8,8 +8,9 @@ const router = Router();
 // GET /competitions — public list
 router.get('/', (req, res) => {
   const competitions = db.prepare(`
-    SELECT c.id, c.name, c.date, c.location, c.division, c.status, c.video_url,
-      (SELECT COUNT(*) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count
+    SELECT c.id, c.name, c.date, c.location, c.status, c.video_url,
+      (SELECT COUNT(DISTINCT r.athlete_id) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count,
+      (SELECT GROUP_CONCAT(d.name, ', ') FROM division d WHERE d.competition_id = c.id ORDER BY d.display_order) as divisions
     FROM competition c
     ORDER BY c.date ASC
   `).all();
@@ -21,25 +22,34 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const competition = db.prepare(`
     SELECT c.*,
-      (SELECT COUNT(*) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count
+      (SELECT COUNT(DISTINCT r.athlete_id) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count
     FROM competition c WHERE c.id = ?
   `).get(req.params.id);
 
   if (!competition) return res.status(404).json({ error: 'Competition not found' });
 
-  const stages = db.prepare(`
-    SELECT s.id, s.stage_type, s.stage_order, s.status,
-      (SELECT COUNT(*) FROM heat h WHERE h.stage_id = s.id) as heat_count
-    FROM stage s WHERE s.competition_id = ?
-    ORDER BY s.stage_order
+  const divisions = db.prepare(`
+    SELECT d.id, d.name, d.display_order,
+      (SELECT COUNT(*) FROM registration r WHERE r.division_id = d.id AND r.status = 'CONFIRMED') as athlete_count
+    FROM division d WHERE d.competition_id = ?
+    ORDER BY d.display_order, d.name
   `).all(req.params.id);
 
-  res.json({ ...competition, stages });
+  const stages = db.prepare(`
+    SELECT s.id, s.stage_type, s.stage_order, s.status, s.division_id, d.name as division_name,
+      (SELECT COUNT(*) FROM heat h WHERE h.stage_id = s.id) as heat_count
+    FROM stage s
+    JOIN division d ON s.division_id = d.id
+    WHERE s.competition_id = ?
+    ORDER BY d.display_order, s.stage_order
+  `).all(req.params.id);
+
+  res.json({ ...competition, divisions, stages });
 });
 
 // POST /competitions — ADMIN only
 router.post('/', authenticate, authorize('ADMIN'), (req, res) => {
-  const { name, date, location, division, description, timetable, video_url, judge_count } = req.body;
+  const { name, date, location, description, timetable, video_url, judge_count } = req.body;
 
   if (!name || !date) {
     return res.status(400).json({ error: 'Name and date are required' });
@@ -51,9 +61,9 @@ router.post('/', authenticate, authorize('ADMIN'), (req, res) => {
 
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO competition (id, name, date, location, division, description, timetable, video_url, judge_count, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, date, location || null, division || null, description || null, timetable || null, video_url || null, judge_count || 3, req.user.id);
+    INSERT INTO competition (id, name, date, location, description, timetable, video_url, judge_count, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, date, location || null, description || null, timetable || null, video_url || null, judge_count || 3, req.user.id);
 
   res.status(201).json({ id, name, status: 'DRAFT' });
 });
@@ -63,7 +73,7 @@ router.patch('/:id', authenticate, authorize('ADMIN'), (req, res) => {
   const competition = db.prepare('SELECT * FROM competition WHERE id = ?').get(req.params.id);
   if (!competition) return res.status(404).json({ error: 'Competition not found' });
 
-  const allowedFields = ['name', 'date', 'location', 'division', 'description', 'timetable', 'video_url', 'judge_count'];
+  const allowedFields = ['name', 'date', 'location', 'description', 'timetable', 'video_url', 'judge_count'];
   const updates = [];
   const values = [];
 
@@ -139,7 +149,7 @@ router.patch('/:id/status', authenticate, authorize('ADMIN'), (req, res) => {
 
   const updated = db.prepare(`
     SELECT c.*,
-      (SELECT COUNT(*) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count
+      (SELECT COUNT(DISTINCT r.athlete_id) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count
     FROM competition c WHERE c.id = ?
   `).get(req.params.id);
   res.json(updated);

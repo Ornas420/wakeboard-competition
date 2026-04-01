@@ -22,7 +22,6 @@ export function initDb() {
       name TEXT NOT NULL,
       date TEXT NOT NULL,
       location TEXT NOT NULL,
-      division TEXT,
       description TEXT,
       timetable TEXT,
       video_url TEXT,
@@ -30,6 +29,14 @@ export function initDb() {
       status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'ACTIVE', 'COMPLETED')),
       created_by TEXT NOT NULL REFERENCES user(id),
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS division (
+      id TEXT PRIMARY KEY,
+      competition_id TEXT NOT NULL REFERENCES competition(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(competition_id, name)
     );
 
     CREATE TABLE IF NOT EXISTS competition_staff (
@@ -43,16 +50,18 @@ export function initDb() {
     CREATE TABLE IF NOT EXISTS registration (
       id TEXT PRIMARY KEY,
       competition_id TEXT NOT NULL REFERENCES competition(id),
+      division_id TEXT NOT NULL REFERENCES division(id),
       athlete_id TEXT NOT NULL REFERENCES user(id),
       status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'CONFIRMED', 'WITHDRAWN')),
       seed INTEGER,
       registered_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(competition_id, athlete_id)
+      UNIQUE(division_id, athlete_id)
     );
 
     CREATE TABLE IF NOT EXISTS stage (
       id TEXT PRIMARY KEY,
       competition_id TEXT NOT NULL REFERENCES competition(id),
+      division_id TEXT NOT NULL REFERENCES division(id),
       stage_type TEXT NOT NULL CHECK(stage_type IN ('QUALIFICATION', 'LCQ', 'QUARTERFINAL', 'SEMIFINAL', 'FINAL')),
       stage_order INTEGER NOT NULL,
       runs_per_athlete INTEGER NOT NULL DEFAULT 2,
@@ -122,6 +131,9 @@ export function initDb() {
     );
 
     -- Indexes
+    CREATE INDEX IF NOT EXISTS idx_division_competition ON division(competition_id);
+    CREATE INDEX IF NOT EXISTS idx_registration_division ON registration(division_id);
+    CREATE INDEX IF NOT EXISTS idx_stage_division ON stage(division_id);
     CREATE INDEX IF NOT EXISTS idx_heat_athlete_heat_id ON heat_athlete(heat_id);
     CREATE INDEX IF NOT EXISTS idx_athlete_run_heat_athlete ON athlete_run(heat_id, athlete_id);
     CREATE INDEX IF NOT EXISTS idx_judge_score_run_id ON judge_score(athlete_run_id);

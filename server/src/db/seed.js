@@ -15,12 +15,16 @@ async function seed() {
     DROP TABLE IF EXISTS stage;
     DROP TABLE IF EXISTS registration;
     DROP TABLE IF EXISTS competition_staff;
+    DROP TABLE IF EXISTS division;
     DROP TABLE IF EXISTS competition;
     DROP TABLE IF EXISTS user;
   `);
 
   // Also drop indexes (they'll be recreated by initDb)
   db.exec(`
+    DROP INDEX IF EXISTS idx_division_competition;
+    DROP INDEX IF EXISTS idx_registration_division;
+    DROP INDEX IF EXISTS idx_stage_division;
     DROP INDEX IF EXISTS idx_heat_athlete_heat_id;
     DROP INDEX IF EXISTS idx_athlete_run_heat_athlete;
     DROP INDEX IF EXISTS idx_judge_score_run_id;
@@ -68,19 +72,27 @@ async function seed() {
   // --- Competition ---
   const compId = uuidv4();
   db.prepare(`
-    INSERT INTO competition (id, name, date, location, division, description, judge_count, status, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO competition (id, name, date, location, description, judge_count, status, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     compId,
     'Lithuanian Wakeboard Open 2026',
     '2026-07-15',
     'Vilnius Wake Park',
-    'Open',
     'Annual Lithuanian wakeboard competition featuring top national riders.',
     3,
     'DRAFT',
     adminId
   );
+
+  // --- Divisions ---
+  const divOpenId = uuidv4();
+  const divJuniorId = uuidv4();
+  const insertDiv = db.prepare(
+    'INSERT INTO division (id, competition_id, name, display_order) VALUES (?, ?, ?, ?)'
+  );
+  insertDiv.run(divOpenId, compId, 'Open Men', 1);
+  insertDiv.run(divJuniorId, compId, 'U19 Junior Men', 2);
 
   // --- Staff ---
   const insertStaff = db.prepare(
@@ -91,12 +103,17 @@ async function seed() {
   insertStaff.run(uuidv4(), compId, judge2Id, 'JUDGE');
   insertStaff.run(uuidv4(), compId, judge3Id, 'JUDGE');
 
-  // --- Registrations (all 10 athletes confirmed) ---
+  // --- Registrations ---
+  // Athletes 0-6 in Open Men, athletes 5-9 in U19 Junior Men
+  // Athletes 5-6 are in BOTH divisions (demonstrates multi-division registration)
   const insertReg = db.prepare(
-    'INSERT INTO registration (id, competition_id, athlete_id, status) VALUES (?, ?, ?, ?)'
+    'INSERT INTO registration (id, competition_id, division_id, athlete_id, status) VALUES (?, ?, ?, ?, ?)'
   );
-  athleteIds.forEach((athleteId) => {
-    insertReg.run(uuidv4(), compId, athleteId, 'CONFIRMED');
+  athleteIds.slice(0, 7).forEach((athleteId) => {
+    insertReg.run(uuidv4(), compId, divOpenId, athleteId, 'CONFIRMED');
+  });
+  athleteIds.slice(5, 10).forEach((athleteId) => {
+    insertReg.run(uuidv4(), compId, divJuniorId, athleteId, 'CONFIRMED');
   });
 
   console.log('Database seeded successfully');
@@ -105,6 +122,8 @@ async function seed() {
   console.log(`  Judges:     judge1@wakeboard.lt, judge2@wakeboard.lt, judge3@wakeboard.lt / password123`);
   console.log(`  Athletes:   athlete1@wakeboard.lt ... athlete10@wakeboard.lt / password123`);
   console.log(`  Competition: ${compId} (DRAFT)`);
+  console.log(`  Divisions:  Open Men (${divOpenId}), U19 Junior Men (${divJuniorId})`);
+  console.log(`  Open Men: 7 athletes, U19 Junior Men: 5 athletes (2 overlap)`);
   process.exit(0);
 }
 

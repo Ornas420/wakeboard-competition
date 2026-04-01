@@ -5,51 +5,67 @@ import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET /registrations/competition/:id — ADMIN only
+// GET /registrations/competition/:competitionId — ADMIN only
 router.get('/competition/:competitionId', authenticate, authorize('ADMIN'), (req, res) => {
   const competition = db.prepare('SELECT id FROM competition WHERE id = ?').get(req.params.competitionId);
   if (!competition) return res.status(404).json({ error: 'Competition not found' });
 
-  const registrations = db.prepare(`
-    SELECT r.id, r.athlete_id, u.name, u.email, r.status, r.seed, r.registered_at
+  let query = `
+    SELECT r.id, r.athlete_id, u.name, u.email, r.status, r.seed, r.registered_at,
+           r.division_id, d.name as division_name
     FROM registration r
     JOIN user u ON r.athlete_id = u.id
+    JOIN division d ON r.division_id = d.id
     WHERE r.competition_id = ?
-    ORDER BY r.registered_at
-  `).all(req.params.competitionId);
+  `;
+  const params = [req.params.competitionId];
+
+  if (req.query.division_id) {
+    query += ' AND r.division_id = ?';
+    params.push(req.query.division_id);
+  }
+
+  query += ' ORDER BY d.display_order, r.registered_at';
+  const registrations = db.prepare(query).all(...params);
 
   res.json(registrations);
 });
 
 // POST /registrations — ATHLETE only
 router.post('/', authenticate, authorize('ATHLETE'), (req, res) => {
-  const { competition_id } = req.body;
+  const { division_id } = req.body;
 
-  if (!competition_id) {
-    return res.status(400).json({ error: 'competition_id is required' });
+  if (!division_id) {
+    return res.status(400).json({ error: 'division_id is required' });
   }
 
-  // Check competition exists and is DRAFT
-  const competition = db.prepare('SELECT status FROM competition WHERE id = ?').get(competition_id);
-  if (!competition) return res.status(404).json({ error: 'Competition not found' });
-  if (competition.status !== 'DRAFT') {
+  // Look up division and its competition
+  const division = db.prepare(`
+    SELECT d.id, d.competition_id, c.status
+    FROM division d
+    JOIN competition c ON d.competition_id = c.id
+    WHERE d.id = ?
+  `).get(division_id);
+  if (!division) return res.status(404).json({ error: 'Division not found' });
+  if (division.status !== 'DRAFT') {
     return res.status(400).json({ error: 'Registration is closed' });
   }
 
-  // Check duplicate
+  // Check duplicate within division
   const existing = db.prepare(
-    'SELECT id FROM registration WHERE competition_id = ? AND athlete_id = ?'
-  ).get(competition_id, req.user.id);
-  if (existing) return res.status(409).json({ error: 'Athlete already registered' });
+    'SELECT id FROM registration WHERE division_id = ? AND athlete_id = ?'
+  ).get(division_id, req.user.id);
+  if (existing) return res.status(409).json({ error: 'Already registered for this division' });
 
   const id = uuidv4();
   db.prepare(
-    'INSERT INTO registration (id, competition_id, athlete_id, status) VALUES (?, ?, ?, ?)'
-  ).run(id, competition_id, req.user.id, 'CONFIRMED');
+    'INSERT INTO registration (id, competition_id, division_id, athlete_id, status) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, division.competition_id, division_id, req.user.id, 'CONFIRMED');
 
   res.status(201).json({
     id,
-    competition_id,
+    competition_id: division.competition_id,
+    division_id,
     athlete_id: req.user.id,
     status: 'CONFIRMED',
     registered_at: new Date().toISOString()
@@ -95,14 +111,14 @@ router.delete('/:id', authenticate, authorize('ADMIN'), (req, res) => {
   const reg = db.prepare('SELECT * FROM registration WHERE id = ?').get(req.params.id);
   if (!reg) return res.status(404).json({ error: 'Registration not found' });
 
-  // Block if athlete is assigned to any heat in this competition
+  // Block if athlete is assigned to any heat in this division
   const inHeat = db.prepare(`
     SELECT ha.id FROM heat_athlete ha
     JOIN heat h ON ha.heat_id = h.id
     JOIN stage s ON h.stage_id = s.id
-    WHERE s.competition_id = ? AND ha.athlete_id = ?
+    WHERE s.division_id = ? AND ha.athlete_id = ?
     LIMIT 1
-  `).get(reg.competition_id, reg.athlete_id);
+  `).get(reg.division_id, reg.athlete_id);
 
   if (inHeat) {
     return res.status(409).json({ error: 'Cannot remove — athlete is assigned to a heat' });
