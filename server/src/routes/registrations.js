@@ -72,6 +72,61 @@ router.post('/', authenticate, authorize('ATHLETE'), (req, res) => {
   });
 });
 
+// POST /registrations/admin — ADMIN only (register existing or new guest athlete)
+// Send { division_id, athlete_id } for existing athlete
+// Send { division_id, name } for new guest athlete (no account, no login)
+router.post('/admin', authenticate, authorize('ADMIN'), (req, res) => {
+  const { division_id, athlete_id, name } = req.body;
+
+  if (!division_id) {
+    return res.status(400).json({ error: 'division_id is required' });
+  }
+  if (!athlete_id && !name) {
+    return res.status(400).json({ error: 'athlete_id or name is required' });
+  }
+
+  const division = db.prepare(`
+    SELECT d.id, d.competition_id
+    FROM division d WHERE d.id = ?
+  `).get(division_id);
+  if (!division) return res.status(404).json({ error: 'Division not found' });
+
+  let athleteRecord;
+
+  if (athlete_id) {
+    // Existing athlete
+    athleteRecord = db.prepare("SELECT id, name FROM user WHERE id = ? AND role = 'ATHLETE'").get(athlete_id);
+    if (!athleteRecord) return res.status(404).json({ error: 'Athlete not found' });
+  } else {
+    // Create guest athlete (no login — placeholder email and password)
+    const guestId = uuidv4();
+    const guestEmail = `guest-${guestId.substring(0, 8)}@wakeboard.local`;
+    db.prepare(
+      'INSERT INTO user (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
+    ).run(guestId, guestEmail, 'no-login', name.trim(), 'ATHLETE');
+    athleteRecord = { id: guestId, name: name.trim() };
+  }
+
+  const existing = db.prepare(
+    'SELECT id FROM registration WHERE division_id = ? AND athlete_id = ?'
+  ).get(division_id, athleteRecord.id);
+  if (existing) return res.status(409).json({ error: 'Athlete already registered for this division' });
+
+  const id = uuidv4();
+  db.prepare(
+    'INSERT INTO registration (id, competition_id, division_id, athlete_id, status) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, division.competition_id, division_id, athleteRecord.id, 'CONFIRMED');
+
+  res.status(201).json({
+    id,
+    competition_id: division.competition_id,
+    division_id,
+    athlete_id: athleteRecord.id,
+    name: athleteRecord.name,
+    status: 'CONFIRMED',
+  });
+});
+
 // PATCH /registrations/:id — ADMIN only (change status)
 router.patch('/:id', authenticate, authorize('ADMIN'), (req, res) => {
   const { status } = req.body;

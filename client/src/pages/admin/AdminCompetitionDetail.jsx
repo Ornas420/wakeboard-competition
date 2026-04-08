@@ -52,7 +52,7 @@ export default function AdminCompetitionDetail() {
   if (!comp) return <div className="text-gray-500">Competition not found.</div>;
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="container mx-auto max-w-4xl px-4 py-6">
       <Link to="/admin" className="mb-4 inline-block text-blue-600 hover:underline">
         ← Back to dashboard
       </Link>

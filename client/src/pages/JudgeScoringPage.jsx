@@ -698,13 +698,14 @@ export default function JudgeScoringPage() {
                     className="w-full rounded-lg bg-orange-500 px-4 py-3 font-semibold text-white hover:bg-orange-600 disabled:opacity-50">
                     {actionLoading ? 'Submitting...' : 'Submit for Review'}
                   </button>
-                  {athleteRuns.every(r => r.scores_submitted === 0) && (
-                    <button onClick={() => hjAction(() => api.patch(`/heats/${selectedHeatId}/status`, { status: 'PENDING' }))}
-                      disabled={actionLoading}
-                      className="w-full rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
-                      Undo Open (revert to PENDING)
-                    </button>
-                  )}
+                  <button onClick={() => {
+                      if (!confirm('Reset this heat? All scores will be deleted and the heat will return to PENDING.')) return;
+                      hjAction(() => api.post(`/heats/${selectedHeatId}/reset`));
+                    }}
+                    disabled={actionLoading}
+                    className="w-full rounded border border-red-300 bg-white px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50">
+                    Reset Heat (clear all scores)
+                  </button>
                 </div>
               )}
 
@@ -742,12 +743,34 @@ export default function JudgeScoringPage() {
                 </>
               )}
 
-              {/* APPROVED: Close */}
+              {/* APPROVED: Close + Reset */}
               {currentHeat.status === 'APPROVED' && (
-                <button onClick={() => hjAction(() => api.post(`/heats/${selectedHeatId}/close`))}
+                <div className="space-y-2">
+                  <button onClick={() => hjAction(() => api.post(`/heats/${selectedHeatId}/close`))}
+                    disabled={actionLoading}
+                    className="w-full rounded-lg bg-gray-700 px-4 py-3 font-semibold text-white hover:bg-gray-800 disabled:opacity-50">
+                    {actionLoading ? 'Closing...' : 'Close Heat'}
+                  </button>
+                  <button onClick={() => {
+                      if (!confirm('Reset this heat? All scores will be deleted and the heat will return to PENDING.')) return;
+                      hjAction(() => api.post(`/heats/${selectedHeatId}/reset`));
+                    }}
+                    disabled={actionLoading}
+                    className="w-full rounded border border-red-300 bg-white px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50">
+                    Reset Heat (clear all scores)
+                  </button>
+                </div>
+              )}
+
+              {/* HEAD_REVIEW: Reset option */}
+              {currentHeat.status === 'HEAD_REVIEW' && (
+                <button onClick={() => {
+                    if (!confirm('Reset this heat? All scores will be deleted and the heat will return to PENDING.')) return;
+                    hjAction(() => api.post(`/heats/${selectedHeatId}/reset`));
+                  }}
                   disabled={actionLoading}
-                  className="w-full rounded-lg bg-gray-700 px-4 py-3 font-semibold text-white hover:bg-gray-800 disabled:opacity-50">
-                  {actionLoading ? 'Closing...' : 'Close Heat'}
+                  className="mt-2 w-full rounded border border-red-300 bg-white px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50">
+                  Reset Heat (clear all scores)
                 </button>
               )}
             </div>

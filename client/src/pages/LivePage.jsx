@@ -138,7 +138,7 @@ export default function LivePage() {
   if (!competition) return null;
 
   return (
-    <div>
+    <div className="container mx-auto px-4 py-6">
       {/* Banner */}
       <div className="mb-4 rounded-lg bg-blue-600 px-6 py-4 text-white shadow">
         <div className="flex items-center justify-between">

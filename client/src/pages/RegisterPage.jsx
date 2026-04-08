@@ -40,7 +40,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="mx-auto max-w-md pt-8">
+    <div className="container mx-auto max-w-md px-4 pt-8">
       <div className="rounded-lg border bg-white p-6 shadow-sm">
         <h1 className="mb-6 text-2xl font-bold text-gray-900">Create Account</h1>
 

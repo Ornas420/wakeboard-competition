@@ -211,6 +211,45 @@ router.patch('/:id/status', authenticate, authorize('ADMIN', 'HEAD_JUDGE'), (req
   });
 });
 
+// POST /heats/:id/reset — HEAD_JUDGE or ADMIN (reset heat to PENDING, wipe all scores)
+router.post('/:id/reset', authenticate, authorize('ADMIN', 'HEAD_JUDGE'), (req, res) => {
+  const heat = db.prepare('SELECT * FROM heat WHERE id = ?').get(req.params.id);
+  if (!heat) return res.status(404).json({ error: 'Heat not found' });
+
+  if (heat.status === 'CLOSED') {
+    return res.status(400).json({ error: 'Cannot reset a CLOSED heat' });
+  }
+
+  db.transaction(() => {
+    // Delete judge_scores for all athlete_runs in this heat
+    db.prepare(`
+      DELETE FROM judge_score WHERE athlete_run_id IN (
+        SELECT id FROM athlete_run WHERE heat_id = ?
+      )
+    `).run(req.params.id);
+
+    // Reset athlete_run scores
+    db.prepare(`
+      UPDATE athlete_run SET computed_score = NULL, scores_submitted = 0
+      WHERE heat_id = ?
+    `).run(req.params.id);
+
+    // Delete heat_result rows
+    db.prepare('DELETE FROM heat_result WHERE heat_id = ?').run(req.params.id);
+
+    // Set heat back to PENDING
+    db.prepare('UPDATE heat SET status = ? WHERE id = ?').run('PENDING', req.params.id);
+  })();
+
+  const stage = db.prepare('SELECT competition_id FROM stage WHERE id = ?').get(heat.stage_id);
+  if (stage) {
+    const io = req.app.get('io');
+    io.to(stage.competition_id).emit('heat:status_changed', { heat_id: req.params.id, status: 'PENDING' });
+  }
+
+  res.json({ id: req.params.id, status: 'PENDING', message: 'Heat reset — all scores cleared' });
+});
+
 // POST /heats/:id/review — HEAD_JUDGE (OPEN → HEAD_REVIEW)
 router.post('/:id/review', authenticate, authorize('HEAD_JUDGE'), (req, res) => {
   try {

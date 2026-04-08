@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { RoleRoute } from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
 import CompetitionDetailPage from './pages/CompetitionDetailPage';
 import LoginPage from './pages/LoginPage';
@@ -17,9 +18,9 @@ function App() {
   return (
     <AuthProvider>
       <SocketProvider>
-        <div className="min-h-screen bg-gray-100">
+        <div className="min-h-screen bg-white">
           <Navbar />
-          <main className="container mx-auto p-4">
+          <main className="min-h-screen">
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<HomePage />} />
@@ -65,6 +66,7 @@ function App() {
               />
             </Routes>
           </main>
+          <Footer />
         </div>
       </SocketProvider>
     </AuthProvider>

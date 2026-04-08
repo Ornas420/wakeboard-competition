@@ -19,7 +19,7 @@ export default function JudgeCompetitionsPage() {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div>
+    <div className="container mx-auto px-4 py-6">
       <h1 className="mb-2 text-2xl font-bold text-gray-900">My Competitions</h1>
       <p className="mb-6 text-gray-600">Competitions you are assigned to as a judge</p>
 

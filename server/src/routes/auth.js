@@ -68,6 +68,17 @@ router.get('/me', authenticate, (req, res) => {
   res.json(user);
 });
 
+// GET /auth/athletes — ADMIN only, lists all ATHLETE users
+router.get('/athletes', authenticate, (req, res) => {
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only admins can list athletes' });
+  }
+  const athletes = db.prepare(
+    "SELECT id, name, email FROM user WHERE role = 'ATHLETE' ORDER BY name"
+  ).all();
+  res.json(athletes);
+});
+
 // GET /auth/judges — ADMIN only, lists all JUDGE and HEAD_JUDGE users
 router.get('/judges', authenticate, (req, res) => {
   if (req.user.role !== 'ADMIN') {

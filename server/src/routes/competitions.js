@@ -8,7 +8,7 @@ const router = Router();
 // GET /competitions — public list
 router.get('/', (req, res) => {
   const competitions = db.prepare(`
-    SELECT c.id, c.name, c.date, c.location, c.status, c.video_url,
+    SELECT c.id, c.name, c.date, c.location, c.status, c.video_url, c.image_url, c.prize_pool, c.level,
       (SELECT COUNT(DISTINCT r.athlete_id) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count,
       (SELECT GROUP_CONCAT(d.name, ', ') FROM division d WHERE d.competition_id = c.id ORDER BY d.display_order) as divisions
     FROM competition c
@@ -140,7 +140,7 @@ router.get('/:id', (req, res) => {
 
 // POST /competitions — ADMIN only
 router.post('/', authenticate, authorize('ADMIN'), (req, res) => {
-  const { name, date, location, description, timetable, video_url, judge_count } = req.body;
+  const { name, date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count } = req.body;
 
   if (!name || !date) {
     return res.status(400).json({ error: 'Name and date are required' });
@@ -152,9 +152,9 @@ router.post('/', authenticate, authorize('ADMIN'), (req, res) => {
 
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO competition (id, name, date, location, description, timetable, video_url, judge_count, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, date, location || null, description || null, timetable || null, video_url || null, judge_count || 3, req.user.id);
+    INSERT INTO competition (id, name, date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, date, location || null, description || null, timetable || null, video_url || null, image_url || null, prize_pool || null, level || null, judge_count || 3, req.user.id);
 
   res.status(201).json({ id, name, status: 'DRAFT' });
 });
@@ -164,7 +164,7 @@ router.patch('/:id', authenticate, authorize('ADMIN'), (req, res) => {
   const competition = db.prepare('SELECT * FROM competition WHERE id = ?').get(req.params.id);
   if (!competition) return res.status(404).json({ error: 'Competition not found' });
 
-  const allowedFields = ['name', 'date', 'location', 'description', 'timetable', 'video_url', 'judge_count'];
+  const allowedFields = ['name', 'date', 'location', 'description', 'timetable', 'video_url', 'image_url', 'prize_pool', 'level', 'judge_count'];
   const updates = [];
   const values = [];
 

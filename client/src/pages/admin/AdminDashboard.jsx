@@ -31,7 +31,7 @@ export default function AdminDashboard() {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div>
+    <div className="container mx-auto px-4 py-6">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
         <button
