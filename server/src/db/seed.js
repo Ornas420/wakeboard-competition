@@ -206,6 +206,134 @@ async function seed() {
     console.log(`  ${h.schedule_order}. ${h.div} — ${h.stage_type} Heat ${h.heat_number}`);
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // COMPETITION 2: Kaunas Wakeboard Cup — 20 Men + 8 Women
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log('');
+  console.log('--- Creating Competition 2: Kaunas Wakeboard Cup ---');
+
+  // Additional men athletes (9 more, total 20 with the 11 existing)
+  const extraMenNames = [
+    'Dovydas Dovydaitis', 'Eimantas Eimantauskas', 'Faustas Faustauskas',
+    'Henrikas Henrikauskas', 'Ignas Ignauskas', 'Justinas Justinauskas',
+    'Kipras Kiprauskas', 'Laurynas Laurynauskas', 'Nerijus Nerijauskas'
+  ];
+  const extraMenIds = extraMenNames.map((name, i) => {
+    const id = uuidv4();
+    insertUser.run(id, `athlete${12 + i}@wakeboard.lt`, hash, name, 'ATHLETE');
+    return id;
+  });
+  const allMenIds = [...menIds, ...extraMenIds]; // 20 total
+
+  // Additional women athletes (2 more, total 8 with the 6 existing)
+  const extraWomenNames = ['Rūta Rūtaitė', 'Simona Simonaitė'];
+  const extraWomenIds = extraWomenNames.map((name, i) => {
+    const id = uuidv4();
+    insertUser.run(id, `wathlete${7 + i}@wakeboard.lt`, hash, name, 'ATHLETE');
+    return id;
+  });
+  const allWomenIds = [...womenIds, ...extraWomenIds]; // 8 total
+
+  const comp2Id = uuidv4();
+  db.prepare(`
+    INSERT INTO competition (id, name, date, location, description, judge_count, status, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    comp2Id,
+    'Kaunas Wakeboard Cup 2026',
+    '2026-08-20',
+    'Kaunas Reservoir',
+    'Regional wakeboard competition with a larger field of athletes.',
+    3,
+    'ACTIVE',
+    adminId
+  );
+
+  const div2MenId = uuidv4();
+  const div2WomenId = uuidv4();
+  insertDiv.run(div2MenId, comp2Id, 'Open Men', 1);
+  insertDiv.run(div2WomenId, comp2Id, 'Open Women', 2);
+
+  // Same staff
+  insertStaff.run(uuidv4(), comp2Id, headJudgeId, 'HEAD_JUDGE');
+  insertStaff.run(uuidv4(), comp2Id, judge1Id, 'JUDGE');
+  insertStaff.run(uuidv4(), comp2Id, judge2Id, 'JUDGE');
+  insertStaff.run(uuidv4(), comp2Id, judge3Id, 'JUDGE');
+
+  // Register 20 men
+  allMenIds.forEach((athleteId, i) => {
+    insertReg.run(uuidv4(), comp2Id, div2MenId, athleteId, 'CONFIRMED', i + 1);
+  });
+
+  // Register 8 women
+  allWomenIds.forEach((athleteId, i) => {
+    insertReg.run(uuidv4(), comp2Id, div2WomenId, athleteId, 'CONFIRMED', i + 1);
+  });
+
+  // Generate heats
+  let men2Heats, women2Heats;
+  try {
+    men2Heats = generateHeatsForDivision(div2MenId);
+    console.log(`  Men heat generation: ${men2Heats.format}`);
+    console.log(`    ${men2Heats.stages_created} stages, ${men2Heats.heats_created} heats created`);
+  } catch (err) {
+    console.error('  Men heat generation failed:', err.message);
+  }
+
+  try {
+    women2Heats = generateHeatsForDivision(div2WomenId);
+    console.log(`  Women heat generation: ${women2Heats.format}`);
+    console.log(`    ${women2Heats.stages_created} stages, ${women2Heats.heats_created} heats created`);
+  } catch (err) {
+    console.error('  Women heat generation failed:', err.message);
+  }
+
+  // Publish all heats
+  db.prepare(`
+    UPDATE heat SET published = 1
+    WHERE id IN (SELECT h.id FROM heat h JOIN stage s ON h.stage_id = s.id WHERE s.competition_id = ?)
+  `).run(comp2Id);
+
+  // Set schedule order
+  const allStages2 = db.prepare(`
+    SELECT s.id, s.stage_type, s.stage_order, s.division_id, d.name as division_name
+    FROM stage s
+    JOIN division d ON s.division_id = d.id
+    WHERE s.competition_id = ?
+    ORDER BY s.stage_order, d.display_order
+  `).all(comp2Id);
+
+  let scheduleOrder2 = 1;
+  for (const stage of allStages2) {
+    const heats = db.prepare('SELECT id FROM heat WHERE stage_id = ? ORDER BY heat_number').all(stage.id);
+    for (const heat of heats) {
+      db.prepare('UPDATE heat SET schedule_order = ? WHERE id = ?').run(scheduleOrder2, heat.id);
+      scheduleOrder2++;
+    }
+  }
+
+  const totalHeats2 = db.prepare(`
+    SELECT COUNT(*) as cnt FROM heat h JOIN stage s ON h.stage_id = s.id WHERE s.competition_id = ?
+  `).get(comp2Id).cnt;
+
+  const scheduleList2 = db.prepare(`
+    SELECT h.schedule_order, d.name as div, s.stage_type, h.heat_number
+    FROM heat h JOIN stage s ON h.stage_id = s.id JOIN division d ON s.division_id = d.id
+    WHERE s.competition_id = ? ORDER BY h.schedule_order
+  `).all(comp2Id);
+
+  console.log('');
+  console.log('=== Competition 2 ===');
+  console.log(`  ${comp2Id} — ACTIVE`);
+  console.log(`  Open Men: 20 athletes → ${men2Heats?.format || 'N/A'}`);
+  console.log(`  Open Women: 8 athletes → ${women2Heats?.format || 'N/A'}`);
+  console.log(`  Total heats: ${totalHeats2} (all published)`);
+  console.log('');
+  console.log('=== Schedule Order (Comp 2) ===');
+  for (const h of scheduleList2) {
+    console.log(`  ${h.schedule_order}. ${h.div} — ${h.stage_type} Heat ${h.heat_number}`);
+  }
+
   process.exit(0);
 }
 

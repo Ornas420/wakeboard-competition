@@ -68,6 +68,17 @@ router.get('/me', authenticate, (req, res) => {
   res.json(user);
 });
 
+// GET /auth/judges — ADMIN only, lists all JUDGE and HEAD_JUDGE users
+router.get('/judges', authenticate, (req, res) => {
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only admins can list judges' });
+  }
+  const judges = db.prepare(
+    "SELECT id, name, email, role FROM user WHERE role IN ('JUDGE', 'HEAD_JUDGE') ORDER BY role, name"
+  ).all();
+  res.json(judges);
+});
+
 // POST /auth/create-staff — ADMIN only, creates JUDGE or HEAD_JUDGE accounts
 router.post('/create-staff', authenticate, (req, res) => {
   if (req.user.role !== 'ADMIN') {

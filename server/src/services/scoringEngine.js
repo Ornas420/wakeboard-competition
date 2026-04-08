@@ -526,25 +526,21 @@ function populateStageHeats(nextStage, athleteObjs) {
 }
 
 function getPerHeatAdvancers(stageId, athletesAdvanceTotal) {
-  // Get all heats in this stage
   const heats = db.prepare(
     'SELECT id, heat_number FROM heat WHERE stage_id = ? ORDER BY heat_number'
   ).all(stageId);
 
   if (heats.length === 0) return [];
 
-  // Per-heat advancement: divide total by number of heats
   const perHeat = Math.floor(athletesAdvanceTotal / heats.length);
   let remainder = athletesAdvanceTotal % heats.length;
 
   const allAdvancers = [];
 
   for (const heat of heats) {
-    // How many advance from this heat
     const advanceFromThis = perHeat + (remainder > 0 ? 1 : 0);
     if (remainder > 0) remainder--;
 
-    // Get heat results ordered by final_rank
     const results = db.prepare(`
       SELECT hr.athlete_id, hr.final_rank, hr.best_score, u.name
       FROM heat_result hr
@@ -553,33 +549,45 @@ function getPerHeatAdvancers(stageId, athletesAdvanceTotal) {
       ORDER BY hr.final_rank ASC
     `).all(heat.id);
 
-    // Top N from this heat advance
     for (let i = 0; i < Math.min(advanceFromThis, results.length); i++) {
       const r = results[i];
-      // Mark as advanced
       db.prepare(
         'UPDATE heat_athlete SET advanced = 1 WHERE heat_id = ? AND athlete_id = ?'
       ).run(heat.id, r.athlete_id);
 
-      allAdvancers.push({ id: r.athlete_id, name: r.name, best_score: r.best_score, seed: allAdvancers.length + 1 });
+      allAdvancers.push({
+        id: r.athlete_id, name: r.name, best_score: r.best_score,
+        rank_in_heat: r.final_rank, heat_number: heat.heat_number,
+      });
     }
   }
 
-  return allAdvancers;
+  // Interleave by rank across heats: rank 1s first (best), then rank 2s, etc.
+  // Within same rank, alternate by heat_number
+  allAdvancers.sort((a, b) => {
+    if (a.rank_in_heat !== b.rank_in_heat) return a.rank_in_heat - b.rank_in_heat;
+    return a.heat_number - b.heat_number;
+  });
+
+  // Re-assign seeds based on sorted order
+  return allAdvancers.map((a, i) => ({ ...a, seed: i + 1 }));
 }
 
 function getNonAdvancers(stageId, advancerIds) {
-  // Get all athletes in this stage who did NOT advance
-  const allAthletes = db.prepare(`
-    SELECT DISTINCT ha.athlete_id, u.name
-    FROM heat_athlete ha
-    JOIN user u ON ha.athlete_id = u.id
-    JOIN heat h ON ha.heat_id = h.id
+  // Get all non-advancing athletes with their rank from heat_result, interleaved by rank
+  const allResults = db.prepare(`
+    SELECT hr.athlete_id, u.name, hr.final_rank, hr.best_score, h.heat_number
+    FROM heat_result hr
+    JOIN user u ON hr.athlete_id = u.id
+    JOIN heat h ON hr.heat_id = h.id
     WHERE h.stage_id = ?
+    ORDER BY hr.final_rank ASC, h.heat_number ASC
   `).all(stageId);
 
   const advSet = new Set(advancerIds);
-  return allAthletes.filter(a => !advSet.has(a.athlete_id));
+  return allResults
+    .filter(a => !advSet.has(a.athlete_id))
+    .map((a, i) => ({ athlete_id: a.athlete_id, name: a.name, seed: i + 1 }));
 }
 
 function completeStageAndAdvance(stageId, ctx, io) {
