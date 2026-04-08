@@ -1,18 +1,20 @@
-# WakeBoard Competition System — Claude Code Context
+# WakeScore — Competition Management System
 
 ## What this project is
 
-A web platform for managing wakeboard competitions. It handles athlete registration,
-automatic heat generation (IWWF rules), live judge scoring, and real-time public
-leaderboards. Built as a bachelor's thesis project at VGTU.
+A web platform for managing wakeboard competitions (WakeScore). It handles athlete registration,
+automatic IWWF-compliant heat generation, live judge scoring, real-time public scoreboards,
+and stage progression with per-heat advancement. Built as a bachelor's thesis project at VGTU.
 
 ## Stack
 
-- **Frontend**: React + Vite + TailwindCSS + socket.io-client
+- **Frontend**: React 19 + Vite + TailwindCSS + socket.io-client
 - **Backend**: Node.js + Express + better-sqlite3 + socket.io
 - **Auth**: JWT + bcrypt
 - **DB**: SQLite (dev) → PostgreSQL (prod)
 - **IDs**: UUID everywhere (use the `uuid` package, never auto-increment)
+- **Font**: Inter (Google Fonts)
+- **Theme**: Dark navy (#1a1a2e) + accent teal (#00b4d8)
 
 ## Monorepo structure
 
@@ -20,62 +22,70 @@ leaderboards. Built as a bachelor's thesis project at VGTU.
 /client       React frontend
   /src
     api.js              Fetch wrapper with auth headers
-    App.jsx             Routes + AuthProvider
+    App.jsx             Routes + AuthProvider + SocketProvider
+    index.css           Tailwind + Inter font base styles
     context/
       AuthContext.jsx    JWT auth state management
+      SocketContext.jsx  Shared Socket.IO connection (env-configurable URL)
     components/
-      Navbar.jsx
-      StatusBadge.jsx
-      LoadingSpinner.jsx
-      ProtectedRoute.jsx
+      Navbar.jsx         Dark scroll-aware navbar, mobile hamburger
+      Footer.jsx         Dark navy footer with link columns
+      StatusBadge.jsx    Color-coded status pills
+      LoadingSpinner.jsx Animated spinner
+      ProtectedRoute.jsx Auth guards (ProtectedRoute + RoleRoute)
       admin/
-        CompetitionForm.jsx
-        StaffSection.jsx
-        DivisionsSection.jsx
-        RegistrationsSection.jsx
-        HeatsSection.jsx      Sprint 3: heat generation UI
-        StagePanel.jsx        Sprint 3: renders stage with heats
-        HeatCard.jsx          Sprint 3: renders single heat
+        CompetitionForm.jsx    Create/edit competition (all fields incl. image, prize, level)
+        StaffSection.jsx       Dropdown picker + create judge form (no UUIDs)
+        DivisionsSection.jsx   Division CRUD
+        RegistrationsSection.jsx  Registration table + "Add Athlete" (existing or guest)
+        HeatsSection.jsx       Heat generation UI
+        ScheduleSection.jsx    Draggable global heat order
+        StagePanel.jsx         Renders stage with heats
+        HeatCard.jsx           Renders single heat
     pages/
-      HomePage.jsx
-      CompetitionDetailPage.jsx
+      HomePage.jsx              Landing: hero, featured comp, card grid, results
+      CompetitionDetailPage.jsx Hero banner, overview, stats, divisions, schedule sidebar
       LoginPage.jsx
       RegisterPage.jsx
+      LivePage.jsx              Public live scoreboard with real-time Socket.IO
+      JudgeCompetitionsPage.jsx Judge's assigned competitions list
+      JudgeScoringPage.jsx      Sequential scoring UI + Head Judge panel
       admin/
         AdminDashboard.jsx
         AdminCompetitionDetail.jsx
 
 /server       Node.js backend
   /src
-    index.js            Express entry + Socket.IO setup
+    index.js            Express entry + Socket.IO setup (rooms: competition, judge)
     db/
-      schema.js         All CREATE TABLE statements (12 tables)
-      seed.js           Test data + heat generation for dev
+      schema.js         All CREATE TABLE statements (12 tables + indexes)
+      seed.js           2 competitions, 20 men + 8 women athletes, full data
     routes/
-      auth.js           Register, login, create-staff
-      competitions.js   CRUD + status + staff management
+      auth.js           Register, login, create-staff, /judges, /athletes
+      competitions.js   CRUD + status + staff + my-assignments + live-data
       divisions.js      Division CRUD per competition
-      registrations.js  Per-division registration
-      heats.js          Heat generation, publish, athlete swap
-      scores.js         Score submission + leaderboard (stubs for Sprint 4)
+      registrations.js  Per-division registration + admin registration (guest athletes)
+      heats.js          Generation, publish, swap, schedule, status, reset, review, ranking, approve, close
+      scores.js         Score submission + correction-request + leaderboard
     middleware/
       auth.js           JWT verify + role guard
     services/
-      heatGeneration.js IWWF heat generation engine (Sprint 3 — COMPLETE)
-      scoringEngine.js  Score aggregation + ranking (Sprint 4 — STUB)
+      heatGeneration.js IWWF heat generation engine (complete)
+      scoringEngine.js  Score submission, approval, stage progression (complete)
+  test.js               140 integration tests across 9 scenarios
 ```
 
 ## Roles
 
 Four roles enforced via JWT middleware:
 
-- `ADMIN` — organiser, manages everything
-- `HEAD_JUDGE` — scores like a judge + can approve/close heats + drag-reorder ranking
-- `JUDGE` — scores all heats in their assigned competition
+- `ADMIN` — organiser, manages everything, creates judge/athlete accounts
+- `HEAD_JUDGE` — scores like a judge + opens heats + reviews/approves/closes + drag-reorder ranking + correction requests
+- `JUDGE` — scores the currently open heat only (locked to active heat)
 - `ATHLETE` — registers, views schedule and results
 
 Public routes (no auth): `GET /competitions`, `GET /competitions/:id`,
-`GET /competitions/:id/live`
+`GET /competitions/:id/live`, `GET /competitions/:id/live-data`
 
 ## Database rules
 
@@ -101,19 +111,32 @@ Key relationships:
 - `heat 1──* heat_result` (written at APPROVED)
 - `stage 1──* stage_ranking` (updated at each APPROVED)
 
-Important columns added in Sprint 3:
+### Competition table columns
+```
+id, name, date, location, description, timetable, video_url, image_url,
+prize_pool, level, judge_count, status, created_by, created_at
+```
+
+### Heat table columns
+```
+id, stage_id, heat_number, status, published, manually_adjusted,
+run2_reorder, scheduled_time, schedule_order
+```
+
+Important flags:
 - `stage.reversed` — 1 for QF/Semi/Finals (best-ranked rides last)
 - `heat.run2_reorder` — 1 for Finals only (Run 2 order based on Run 1 scores)
+- `heat.schedule_order` — global execution order set by admin
 
 ## Multi-Division System
 
-Competitions have multiple divisions (Open Men, Veterans, Junior, etc.).
+Competitions have multiple divisions (Open Men, Open Women, Junior, etc.).
 Each division runs its own independent stage/heat pipeline.
 Athletes can register for multiple divisions in the same competition.
 Staff (judges, head judge) are assigned at competition level, not per division.
 Registration unique constraint: `(division_id, athlete_id)`.
 
-## Heat Generation — IWWF Format (from official IWWF Cablewakeboard document)
+## Heat Generation — IWWF Format
 
 The complete lookup table is hardcoded in `server/src/services/heatGeneration.js`.
 Max 6 athletes per heat. No upper limit on athletes (extends algorithmically for 55+).
@@ -140,6 +163,14 @@ Distribution algorithms:
 At generation time, only QUALIFICATION heats get athletes assigned.
 LCQ/Semi/QF/Final heats are created as empty shells — populated after preceding stage completes.
 
+### Stage Progression — Per-Heat Advancement
+- Advancement is **per-heat**: top N from each heat advance (not a global leaderboard)
+- Athletes are **interleaved by rank** across heats when advancing (rank 1s first, rank 2s next, etc.)
+- **QUAL → LCQ**: non-qualifiers go to LCQ (interleaved by rank). Qualifiers wait.
+- **LCQ → next stage**: LCQ heat winners combine with QUAL qualifiers → populate SEMI/FINAL
+- **SEMI → FINAL**: per-heat advancers interleaved by rank, distributed via LADDER
+- Next-stage heats are **auto-published** after advancement
+
 ### Finals Run 2 Reorder (Finals ONLY)
 After Run 1 scores are computed, athletes are reordered for Run 2:
 lowest Run 1 score rides first, highest rides last. This is marked by `heat.run2_reorder = 1`.
@@ -151,7 +182,7 @@ lowest Run 1 score rides first, highest rides last. This is marked by `heat.run2
 3. Upsert judge_score — never duplicate (athlete_run_id, judge_id)
 4. On each INSERT: increment athlete_run.scores_submitted
 5. When scores_submitted = competition.judge_count:
-   - SET computed_score = ROUND(AVG(score), 2)
+   - SET computed_score = ROUND(AVG(score), 2) — always in SQL
    - Emit `score:computed` via Socket.IO to competition room
 6. Score only visible on public page once computed_score is non-null
 7. FRS = Run 1 is best score. SRS = Run 2 is best score.
@@ -162,37 +193,102 @@ lowest Run 1 score rides first, highest rides last. This is marked by `heat.run2
 PENDING → OPEN → HEAD_REVIEW → APPROVED → CLOSED
 ```
 
+Additional transitions:
+- `OPEN → PENDING` (undo open, only if no scores)
+- `APPROVED → HEAD_REVIEW` (rollback/reopen, deletes all scores)
+- `Any non-CLOSED → PENDING` via POST /heats/:id/reset (wipes all scores)
+
 CORRECTION_REQUESTED is a sub-state of HEAD_REVIEW (judge must fix a flagged score).
-APPROVED → HEAD_REVIEW is valid (rollback before CLOSED).
-No other transitions are valid. Enforce in the route handlers.
 
-## Head Judge approval
+## Judge Scoring Flow
 
-1. All computed_scores must be non-null (0.0 is fine, NULL blocks approval)
-2. Compute best_score = MAX(run1, run2) per athlete
-3. Default rank = ORDER BY best_score DESC, second_score DESC
-4. Head Judge can override with PATCH /heats/:id/ranking before approving
-5. final_rank on heat_result is the source of truth for advancement
-6. On approve: write heat_result rows, upsert stage_ranking, emit heat:approved + leaderboard:updated
+1. **No heat open** → Judge sees "Waiting for Head Judge" screen
+2. **Heat opened** → Judge auto-enters scoring UI (no navigation, locked to active heat)
+3. **Scoring** → Sequential one-athlete-at-a-time: score input, submit, auto-advance
+4. **Runs completed** → Head Judge submits for review
+5. **HEAD_REVIEW** → Judges see waiting screen. Head Judge sees score review table with Flag buttons
+6. **Correction** → Flagged judge gets instant popup modal to fix one score
+7. **Approved/Closed** → Judges locked out, Head Judge closes heat
+
+## Head Judge Panel
+
+- Opens heats (PENDING → OPEN)
+- Scores like a regular judge
+- Score review table showing all judges' individual scores with names
+- Flag scores for correction (sends instant popup to that judge)
+- Self-correction (flag own score, inline edit)
+- Draggable ranking reorder before approval
+- Review → Approve → Close flow
+- Reset heat (wipe all scores, return to PENDING)
 
 ## WebSocket events (Socket.IO rooms = competition_id)
 
 ```
 score:computed       { athlete_run_id, athlete_id, run_number, heat_id, computed_score }
+score:submitted      { athlete_run_id, heat_id }  — triggers refetch on all clients
 heat:approved        { heat_id, results: [{ athlete_id, best_score, final_rank }] }
 heat:closed          { heat_id, stage_id }
+heat:opened          { heat_id }
+heat:status_changed  { heat_id, status }
 leaderboard:updated  { stage_id, rankings: [{ athlete_id, score, rank }] }
-correction:requested { judge_id, athlete_run_id, note }  — sent to that judge only
+correction:requested { judge_id, athlete_run_id, note }  — sent to judge:{userId} room only
 ```
 
-## API conventions
+## API Endpoints (30 total)
 
-- All responses are JSON
-- Errors: `{ "error": "message" }` with appropriate HTTP status
-- Success creates: 201. Success reads/updates: 200
-- Auth header: `Authorization: Bearer <token>`
-- Dates: ISO 8601 strings
-- IDs in responses always called `id`, foreign keys called `entity_id` (e.g. `competition_id`)
+### Auth (4)
+- `POST /auth/register` — public, creates ATHLETE
+- `POST /auth/login` — public, returns JWT
+- `GET /auth/me` — authenticated, returns profile
+- `POST /auth/create-staff` — ADMIN, creates JUDGE/HEAD_JUDGE
+- `GET /auth/judges` — ADMIN, lists all judge users
+- `GET /auth/athletes` — ADMIN, lists all athlete users
+
+### Competitions (10)
+- `GET /competitions` — public list
+- `GET /competitions/:id` — public detail
+- `GET /competitions/:id/live-data` — public, optimized bulk data for live page
+- `GET /competitions/my-assignments` — JUDGE/HEAD_JUDGE, assigned competitions
+- `POST /competitions` — ADMIN, create
+- `PATCH /competitions/:id` — ADMIN, edit fields
+- `PATCH /competitions/:id/status` — ADMIN, status transitions
+- `POST /competitions/:id/staff` — ADMIN, assign judge
+- `GET /competitions/:id/staff` — ADMIN, list staff
+- `DELETE /competitions/:id/staff/:userId` — ADMIN, remove staff
+
+### Divisions (4)
+- `GET /competitions/:id/divisions` — public
+- `POST /competitions/:id/divisions` — ADMIN
+- `PATCH /competitions/:id/divisions/:divisionId` — ADMIN
+- `DELETE /competitions/:id/divisions/:divisionId` — ADMIN
+
+### Registrations (5)
+- `GET /registrations/competition/:id` — ADMIN
+- `POST /registrations` — ATHLETE, self-register
+- `POST /registrations/admin` — ADMIN, register existing athlete or create guest
+- `PATCH /registrations/:id` — ADMIN, change status
+- `PATCH /registrations/:id/seed` — ADMIN, set seed
+- `DELETE /registrations/:id` — ADMIN
+
+### Heats (11)
+- `GET /heats/competition/:id` — authenticated
+- `POST /heats/generate` — ADMIN
+- `DELETE /heats/division/:id` — ADMIN
+- `PATCH /heats/schedule` — ADMIN, batch set schedule_order
+- `PATCH /heats/publish-stage/:stageId` — ADMIN
+- `PATCH /heats/:id/athletes` — ADMIN, swap athlete
+- `PATCH /heats/:id/status` — ADMIN/HEAD_JUDGE (PENDING↔OPEN, APPROVED→HEAD_REVIEW)
+- `POST /heats/:id/reset` — ADMIN/HEAD_JUDGE, reset to PENDING (wipe scores)
+- `POST /heats/:id/review` — HEAD_JUDGE
+- `PATCH /heats/:id/ranking` — HEAD_JUDGE
+- `POST /heats/:id/approve` — HEAD_JUDGE
+- `POST /heats/:id/close` — HEAD_JUDGE
+
+### Scores (4)
+- `GET /scores/heat/:heatId` — JUDGE/HEAD_JUDGE/ADMIN
+- `POST /scores` — JUDGE/HEAD_JUDGE
+- `POST /scores/correction-request` — HEAD_JUDGE
+- `GET /scores/leaderboard/:competitionId` — public
 
 ## Key validation rules (enforce in routes, not just frontend)
 
@@ -215,6 +311,7 @@ correction:requested { judge_id, athlete_run_id, note }  — sent to that judge 
 - Never add DNS/DNF status fields — judges enter 0 for no-shows
 - Never build automatic tiebreak logic — Head Judge drags ranking manually
 - Never let frontend be the only validation — backend must validate independently
+- Never use a global leaderboard for advancement — always per-heat
 
 ## Coding style
 
@@ -223,14 +320,19 @@ correction:requested { judge_id, athlete_run_id, note }  — sent to that judge 
 - Route files export a router, import into index.js
 - Services contain business logic — routes are thin (validate → call service → respond)
 - Environment variables via dotenv — never hardcode secrets
-- All DB queries in the service layer, never in route handlers
+- Score status check inside db.transaction() to prevent race conditions
+- Socket handlers use refs for latest state (prevent stale closures)
 
-## Environment variables (server/.env)
+## Environment variables
 
 ```
+# server/.env
 PORT=3001
 JWT_SECRET=your_secret_here
 DB_PATH=./wakeboard.db
+
+# client (optional)
+VITE_SOCKET_URL=http://localhost:3001   # defaults to localhost:3001
 ```
 
 ## Dev commands
@@ -245,46 +347,41 @@ cd client && npm run dev
 # Server only (port 3001)
 cd server && npm run dev
 
-# Run seed data
+# Run seed data (2 competitions, full data)
 cd server && node src/db/seed.js
+
+# Run tests (140 integration tests)
+cd server && node test.js
 ```
 
 ## Sprint progress
 
 ### Sprint 1 (DONE) — Scaffold, DB schema, JWT auth
-- Monorepo with npm workspaces
-- 12-table SQLite schema with UUIDs, CHECK constraints, indexes
-- JWT auth: register, login, /auth/me, create-staff
-- Role middleware (ADMIN, HEAD_JUDGE, JUDGE, ATHLETE)
-- Seed script
-
 ### Sprint 2 (DONE) — Public pages, admin, divisions, registration
-- Public home page + competition detail
-- Multi-division system (division table, per-division registration)
-- Admin dashboard + competition management (CRUD, status, staff, divisions, registrations)
-- Athlete registration per division
-- Login/Register pages, Navbar, AuthContext, ProtectedRoute
-
 ### Sprint 3 (DONE) — IWWF heat generation engine
-- Full IWWF format lookup table (3-54 athletes + algorithmic extension for 55+)
-- Snake, Ladder, Stepladder distribution algorithms
-- `generateHeatsForDivision(divisionId)` — validates, creates stages/heats/athletes/runs
-- `deleteHeatsForDivision(divisionId)` — FK-safe cleanup
-- Routes: POST /heats/generate, DELETE /heats/division/:id, PATCH /publish-stage, PATCH /athletes
-- Schema additions: stage.reversed, heat.run2_reorder
-- Admin UI: HeatsSection, StagePanel, HeatCard components
-- Seed data generates heats for Open Men division
-
-### Sprint 4 (NEXT) — Scoring engine + Head Judge approval + manual reorder
-See WakeBoard_MASTER.pdf sections 7.3 and 7.4 for exact prompts.
-Key features:
-- POST /scores — upsert judge_score, trigger computed_score
+### Sprint 4 (DONE) — Scoring engine + Head Judge approval + stage progression
+- POST /scores with upsert, computed_score trigger via SQL AVG
 - Heat lifecycle: review, approve (with manual reorder), close
-- Stage progression: advance athletes to next stage after all heats closed
-- Populate LCQ/Semi/QF/Final heats using ladder/stepladder distribution
-- Finals Run 2 reorder (heat.run2_reorder = 1)
-- Socket.IO events: score:computed, heat:approved, leaderboard:updated
-- Judge scoring UI, Head Judge approval UI
+- Per-heat advancement with interleaving by rank
+- Correction request flow with real-time Socket.IO
+- Finals Run 2 reorder
+
+### Sprint 5 (DONE) — Real-time WebSocket + Judge scoring UI + Live page
+- SocketContext for shared connection
+- Judge scoring: sequential one-athlete-at-a-time, locked to active heat
+- Head Judge panel: score review table, flag corrections, drag ranking, approve/close
+- Public live page: division/stage/heat tabs, real-time updates, NOW SCORING banner
+- Admin schedule section
+
+### Sprint 6 (DONE) — UI redesign + polish
+- Renamed to WakeScore
+- Dark navy theme with Inter font
+- Homepage: hero, featured competition, card grid, footer
+- Competition detail: hero banner, two-column layout, stats, schedule sidebar
+- New fields: image_url, prize_pool, level
+- Admin improvements: staff dropdown, registration add athlete (existing + guest)
+- Heat reset functionality
+- 140 integration tests (server/test.js)
 
 ## Test accounts (after seeding)
 
@@ -295,4 +392,17 @@ Key features:
 | Judge 1 | judge1@wakeboard.lt | password123 |
 | Judge 2 | judge2@wakeboard.lt | password123 |
 | Judge 3 | judge3@wakeboard.lt | password123 |
-| Athletes | athlete1-10@wakeboard.lt | password123 |
+| Men Athletes | athlete1-20@wakeboard.lt | password123 |
+| Women Athletes | wathlete1-8@wakeboard.lt | password123 |
+
+## Seeded Competitions
+
+**Competition 1: Lithuanian Wakeboard Open 2026**
+- 11 Men + 6 Women, National, €5,000 prize, ACTIVE
+- Men: QUAL(2) → LCQ(2) → FINAL(1)
+- Women: QUAL(1) → FINAL(1)
+
+**Competition 2: Kaunas Wakeboard Cup 2026**
+- 20 Men + 8 Women, International, €10,000 prize, ACTIVE
+- Men: QUAL(4) → LCQ(2) → SEMI(2) → FINAL(1)
+- Women: QUAL(2) → LCQ(1) → FINAL(1)
