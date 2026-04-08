@@ -20,7 +20,8 @@ export function initDb() {
     CREATE TABLE IF NOT EXISTS competition (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      date TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
       location TEXT NOT NULL,
       description TEXT,
       timetable TEXT,
@@ -28,7 +29,7 @@ export function initDb() {
       image_url TEXT,
       prize_pool TEXT,
       level TEXT,
-      judge_count INTEGER NOT NULL DEFAULT 3 CHECK(judge_count >= 3 AND judge_count <= 5),
+      judge_count INTEGER NOT NULL DEFAULT 3 CHECK(judge_count >= 1 AND judge_count <= 5),
       status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'ACTIVE', 'COMPLETED')),
       created_by TEXT NOT NULL REFERENCES user(id),
       created_at TEXT NOT NULL DEFAULT (datetime('now'))

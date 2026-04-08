@@ -81,12 +81,13 @@ async function seed() {
   // --- Competition ---
   const compId = uuidv4();
   db.prepare(`
-    INSERT INTO competition (id, name, date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, status, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO competition (id, name, start_date, end_date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, status, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     compId,
     'Lithuanian Wakeboard Open 2026',
     '2026-07-15',
+    '2026-07-17',
     'Vilnius Wake Park',
     'Prepare for the most prestigious wakeboarding event in the Baltics. The Lithuanian Wakeboard Open brings together athletes from across the region to showcase their talent and compete for a three-day showcase of extreme water sports.\n\nHosted at the premier Vilnius Wake Park, this competition features IWWF-compliant format with qualification rounds, last chance qualifiers, and an exciting final. Athletes will compete across multiple divisions with two runs per heat scored by a panel of certified judges.',
     'DAY 1 — July 15\n09:00 — Opening Ceremony\n09:30 — Men Qualification Heat 1\n10:15 — Men Qualification Heat 2\n11:00 — Women Qualification Heat 1\n12:00 — Lunch Break\n13:00 — Men LCQ Heat 1\n13:45 — Men LCQ Heat 2\n14:30 — Women Final\n15:30 — Men Final\n16:30 — Award Ceremony',
@@ -94,7 +95,7 @@ async function seed() {
     'https://images.unsplash.com/photo-1564415051543-cb73a0109ddc?w=1200&q=80',
     '€5,000',
     'National',
-    3,
+    2,
     'ACTIVE',
     adminId
   );
@@ -114,8 +115,6 @@ async function seed() {
   );
   insertStaff.run(uuidv4(), compId, headJudgeId, 'HEAD_JUDGE');
   insertStaff.run(uuidv4(), compId, judge1Id, 'JUDGE');
-  insertStaff.run(uuidv4(), compId, judge2Id, 'JUDGE');
-  insertStaff.run(uuidv4(), compId, judge3Id, 'JUDGE');
 
   // --- Registrations ---
   const insertReg = db.prepare(
@@ -241,12 +240,13 @@ async function seed() {
 
   const comp2Id = uuidv4();
   db.prepare(`
-    INSERT INTO competition (id, name, date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, status, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO competition (id, name, start_date, end_date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, status, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     comp2Id,
     'Kaunas Wakeboard Cup 2026',
     '2026-08-20',
+    '2026-08-21',
     'Kaunas Reservoir',
     'The biggest wakeboard competition in the Baltic region returns for its 5th edition! Featuring 28 athletes across two divisions, the Kaunas Wakeboard Cup brings together the best riders from Lithuania, Latvia, Estonia, and Poland.\n\nWith a €10,000 prize pool and international-level judging, this is the must-attend event of the summer. The competition follows full IWWF format with qualification rounds, quarter-finals, semi-finals, and a thrilling final.',
     'DAY 1 — August 20\n08:30 — Registration & Check-in\n09:00 — Men Qualification Heat 1\n09:30 — Men Qualification Heat 2\n10:00 — Men Qualification Heat 3\n10:30 — Men Qualification Heat 4\n11:00 — Women Qualification Heat 1\n11:30 — Women Qualification Heat 2\n12:00 — Lunch Break\n\nDAY 2 — August 21\n09:00 — Men LCQ Heat 1\n09:30 — Men LCQ Heat 2\n10:00 — Women LCQ Heat 1\n10:45 — Men Semi-final Heat 1\n11:30 — Men Semi-final Heat 2\n12:15 — Lunch Break\n13:00 — Women Final\n14:00 — Men Final\n15:30 — Award Ceremony & Afterparty',
@@ -254,7 +254,7 @@ async function seed() {
     'https://images.unsplash.com/photo-1621988935681-e8d4b8c9314e?w=1200&q=80',
     '€10,000',
     'International',
-    3,
+    2,
     'ACTIVE',
     adminId
   );
@@ -267,8 +267,6 @@ async function seed() {
   // Same staff
   insertStaff.run(uuidv4(), comp2Id, headJudgeId, 'HEAD_JUDGE');
   insertStaff.run(uuidv4(), comp2Id, judge1Id, 'JUDGE');
-  insertStaff.run(uuidv4(), comp2Id, judge2Id, 'JUDGE');
-  insertStaff.run(uuidv4(), comp2Id, judge3Id, 'JUDGE');
 
   // Register 20 men
   allMenIds.forEach((athleteId, i) => {

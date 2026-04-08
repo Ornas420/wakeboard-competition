@@ -8,11 +8,11 @@ const router = Router();
 // GET /competitions — public list
 router.get('/', (req, res) => {
   const competitions = db.prepare(`
-    SELECT c.id, c.name, c.date, c.location, c.status, c.video_url, c.image_url, c.prize_pool, c.level,
+    SELECT c.id, c.name, c.start_date, c.end_date, c.location, c.status, c.video_url, c.image_url, c.prize_pool, c.level,
       (SELECT COUNT(DISTINCT r.athlete_id) FROM registration r WHERE r.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count,
       (SELECT GROUP_CONCAT(d.name, ', ') FROM division d WHERE d.competition_id = c.id ORDER BY d.display_order) as divisions
     FROM competition c
-    ORDER BY c.date ASC
+    ORDER BY c.start_date ASC
   `).all();
 
   res.json({ competitions });
@@ -21,7 +21,7 @@ router.get('/', (req, res) => {
 // GET /competitions/my-assignments — JUDGE, HEAD_JUDGE
 router.get('/my-assignments', authenticate, authorize('JUDGE', 'HEAD_JUDGE'), (req, res) => {
   const competitions = db.prepare(`
-    SELECT c.id, c.name, c.date, c.location, c.status, cs.staff_role,
+    SELECT c.id, c.name, c.start_date, c.end_date, c.location, c.status, cs.staff_role,
       (SELECT COUNT(DISTINCT r.athlete_id) FROM registration r
        JOIN division d ON r.division_id = d.id
        WHERE d.competition_id = c.id AND r.status = 'CONFIRMED') as athlete_count,
@@ -29,7 +29,7 @@ router.get('/my-assignments', authenticate, authorize('JUDGE', 'HEAD_JUDGE'), (r
     FROM competition_staff cs
     JOIN competition c ON cs.competition_id = c.id
     WHERE cs.user_id = ?
-    ORDER BY c.date DESC
+    ORDER BY c.start_date DESC
   `).all(req.user.id);
 
   res.json({ competitions });
@@ -39,7 +39,7 @@ router.get('/my-assignments', authenticate, authorize('JUDGE', 'HEAD_JUDGE'), (r
 router.get('/:id/live-data', (req, res) => {
   const compId = req.params.id;
   const competition = db.prepare(`
-    SELECT c.id, c.name, c.date, c.location, c.status, c.video_url, c.judge_count
+    SELECT c.id, c.name, c.start_date, c.end_date, c.location, c.status, c.video_url, c.judge_count
     FROM competition c WHERE c.id = ?
   `).get(compId);
 
@@ -59,7 +59,7 @@ router.get('/:id/live-data', (req, res) => {
   `).all(compId);
 
   const allHeats = db.prepare(`
-    SELECT h.id, h.heat_number, h.status, h.run2_reorder, h.stage_id
+    SELECT h.id, h.heat_number, h.status, h.run2_reorder, h.stage_id, h.schedule_order
     FROM heat h
     JOIN stage s ON h.stage_id = s.id
     WHERE s.competition_id = ? AND h.published = 1
@@ -140,21 +140,21 @@ router.get('/:id', (req, res) => {
 
 // POST /competitions — ADMIN only
 router.post('/', authenticate, authorize('ADMIN'), (req, res) => {
-  const { name, date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count } = req.body;
+  const { name, start_date, end_date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count } = req.body;
 
-  if (!name || !date) {
-    return res.status(400).json({ error: 'Name and date are required' });
+  if (!name || !start_date) {
+    return res.status(400).json({ error: 'Name and start date are required' });
   }
 
-  if (judge_count !== undefined && (judge_count < 3 || judge_count > 5)) {
-    return res.status(400).json({ error: 'Judge count must be between 3 and 5' });
+  if (judge_count !== undefined && (judge_count < 1 || judge_count > 5)) {
+    return res.status(400).json({ error: 'Judge count must be between 1 and 5' });
   }
 
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO competition (id, name, date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, date, location || null, description || null, timetable || null, video_url || null, image_url || null, prize_pool || null, level || null, judge_count || 3, req.user.id);
+    INSERT INTO competition (id, name, start_date, end_date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, start_date, end_date || null, location || null, description || null, timetable || null, video_url || null, image_url || null, prize_pool || null, level || null, judge_count || 3, req.user.id);
 
   res.status(201).json({ id, name, status: 'DRAFT' });
 });
@@ -164,27 +164,27 @@ router.patch('/:id', authenticate, authorize('ADMIN'), (req, res) => {
   const competition = db.prepare('SELECT * FROM competition WHERE id = ?').get(req.params.id);
   if (!competition) return res.status(404).json({ error: 'Competition not found' });
 
-  const allowedFields = ['name', 'date', 'location', 'description', 'timetable', 'video_url', 'image_url', 'prize_pool', 'level', 'judge_count'];
+  const allowedFields = ['name', 'start_date', 'end_date', 'location', 'description', 'timetable', 'video_url', 'image_url', 'prize_pool', 'level', 'judge_count'];
   const updates = [];
   const values = [];
 
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) {
-      // judge_count locked once heats generated
+      // judge_count locked once heats generated — skip silently
       if (field === 'judge_count') {
         const hasHeats = db.prepare(
           'SELECT 1 FROM stage s JOIN heat h ON h.stage_id = s.id WHERE s.competition_id = ? LIMIT 1'
         ).get(req.params.id);
         if (hasHeats) {
-          return res.status(400).json({ error: 'judge_count is locked once heats are generated' });
+          continue;
         }
         if (req.body[field] < 3 || req.body[field] > 5) {
-          return res.status(400).json({ error: 'Judge count must be between 3 and 5' });
+          return res.status(400).json({ error: 'Judge count must be between 1 and 5' });
         }
       }
-      // date locked once ACTIVE
-      if (field === 'date' && competition.status === 'ACTIVE') {
-        return res.status(400).json({ error: 'Date is locked once competition is ACTIVE' });
+      // dates locked once ACTIVE — skip silently
+      if ((field === 'start_date' || field === 'end_date') && competition.status === 'ACTIVE') {
+        continue;
       }
       updates.push(`${field} = ?`);
       values.push(req.body[field]);

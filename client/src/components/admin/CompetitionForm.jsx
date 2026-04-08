@@ -2,7 +2,8 @@ import { useState } from 'react';
 
 const emptyForm = {
   name: '',
-  date: '',
+  start_date: '',
+  end_date: '',
   location: '',
   description: '',
   timetable: '',
@@ -18,7 +19,8 @@ export default function CompetitionForm({ competition = null, onSubmit, onCancel
     competition
       ? {
           name: competition.name || '',
-          date: competition.date || '',
+          start_date: competition.start_date || '',
+          end_date: competition.end_date || '',
           location: competition.location || '',
           description: competition.description || '',
           timetable: competition.timetable || '',
@@ -68,8 +70,12 @@ export default function CompetitionForm({ competition = null, onSubmit, onCancel
           <input type="text" name="name" value={form.name} onChange={handleChange} required className={inputClass} />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Date *</label>
-          <input type="date" name="date" value={form.date} onChange={handleChange} required className={inputClass} />
+          <label className="mb-1 block text-sm font-medium text-gray-700">Start Date *</label>
+          <input type="date" name="start_date" value={form.start_date} onChange={handleChange} required className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">End Date</label>
+          <input type="date" name="end_date" value={form.end_date} onChange={handleChange} className={inputClass} />
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700">Location</label>
@@ -85,7 +91,7 @@ export default function CompetitionForm({ competition = null, onSubmit, onCancel
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700">Judge Count (3-5)</label>
-          <input type="number" name="judge_count" value={form.judge_count} onChange={handleChange} min={3} max={5} className={inputClass} />
+          <input type="number" name="judge_count" value={form.judge_count} onChange={handleChange} min={1} max={5} className={inputClass} />
         </div>
         <div className="sm:col-span-2">
           <label className="mb-1 block text-sm font-medium text-gray-700">Image URL</label>

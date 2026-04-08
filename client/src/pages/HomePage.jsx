@@ -3,6 +3,19 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import LoadingSpinner from '../components/LoadingSpinner';
 
+function formatDateRange(start, end) {
+  const opts = { month: 'short', day: 'numeric', year: 'numeric' };
+  const s = new Date(start).toLocaleDateString('en-US', opts);
+  if (!end || start === end) return s;
+  const e = new Date(end).toLocaleDateString('en-US', opts);
+  // Same month+year: "Jul 15–17, 2026"
+  const sd = new Date(start), ed = new Date(end);
+  if (sd.getMonth() === ed.getMonth() && sd.getFullYear() === ed.getFullYear()) {
+    return `${sd.toLocaleDateString('en-US', { month: 'short' })} ${sd.getDate()}–${ed.getDate()}, ${sd.getFullYear()}`;
+  }
+  return `${s} – ${e}`;
+}
+
 const GRADIENTS = [
   'from-navy-800 to-blue-900',
   'from-navy-900 to-indigo-900',
@@ -38,7 +51,7 @@ export default function HomePage() {
   return (
     <div>
       {/* ═══ HERO ═══ */}
-      <section className="relative flex min-h-[85vh] items-center overflow-hidden bg-navy-950">
+      <section className="relative -mt-16 flex min-h-[85vh] items-center overflow-hidden bg-navy-950">
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: "url('https://images.unsplash.com/photo-1621988935681-e8d4b8c9314e?w=1920&q=80')" }}
@@ -128,7 +141,7 @@ export default function HomePage() {
                       </Link>
                       <p className="mb-4 text-sm text-gray-500">
                         {comp.location && `${comp.location} · `}
-                        {new Date(comp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {formatDateRange(comp.start_date, comp.end_date)}
                       </p>
 
                       <div className="mb-4 flex gap-6">
@@ -203,7 +216,7 @@ export default function HomePage() {
                       </div>
                     ) : (
                       <p className="mb-2 text-xs text-white/50">
-                        {new Date(comp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {formatDateRange(comp.start_date, comp.end_date)}
                       </p>
                     )}
                     <h3 className="text-lg font-bold text-white">{comp.name}</h3>
@@ -241,7 +254,7 @@ export default function HomePage() {
                   className="rounded-xl border border-gray-200 p-6 transition hover:border-navy-200 hover:shadow-md">
                   <h3 className="mb-1 text-lg font-semibold text-navy-900">{comp.name}</h3>
                   <p className="text-sm text-gray-500">
-                    {new Date(comp.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    {formatDateRange(comp.start_date, comp.end_date)}
                     {comp.location && ` · ${comp.location}`}
                   </p>
                   <div className="mt-4 flex items-center gap-4">

@@ -21,7 +21,7 @@ function App() {
       <SocketProvider>
         <div className="min-h-screen bg-white">
           <Navbar />
-          <main className="min-h-screen">
+          <main className="min-h-screen pt-16">
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<HomePage />} />

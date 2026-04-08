@@ -153,21 +153,21 @@ async function main() {
   log('TS-02: Competition Management');
 
   log('  Scenario: Competition CRUD');
-  const { status: cc1, data: ccData } = await api('POST', '/competitions', { name: 'Test Comp', date: '2026-08-01', location: 'Test Venue', judge_count: 3 }, adminToken);
+  const { status: cc1, data: ccData } = await api('POST', '/competitions', { name: 'Test Comp', start_date: '2026-08-01', location: 'Test Venue', judge_count: 3 }, adminToken);
   check('TC-02.01: Admin creates competition → 201', cc1, 201);
   assert('TC-02.01b: Returns id', !!ccData?.id);
   const testCompId = ccData?.id;
 
-  const { status: cc2 } = await api('POST', '/competitions', { date: '2026-08-01' }, adminToken);
+  const { status: cc2 } = await api('POST', '/competitions', { start_date: '2026-08-01' }, adminToken);
   check('TC-02.02: Missing name → 400', cc2, 400);
 
-  const { status: cc3 } = await api('POST', '/competitions', { name: 'X', date: '2026-08-01', judge_count: 2 }, adminToken);
+  const { status: cc3 } = await api('POST', '/competitions', { name: 'X', start_date: '2026-08-01', judge_count: 2 }, adminToken);
   check('TC-02.03: judge_count 2 → 400', cc3, 400);
 
-  const { status: cc4 } = await api('POST', '/competitions', { name: 'X', date: '2026-08-01', judge_count: 6 }, adminToken);
+  const { status: cc4 } = await api('POST', '/competitions', { name: 'X', start_date: '2026-08-01', judge_count: 6 }, adminToken);
   check('TC-02.04: judge_count 6 → 400', cc4, 400);
 
-  const { status: cc5 } = await api('POST', '/competitions', { name: 'X', date: '2026-08-01' }, athToken);
+  const { status: cc5 } = await api('POST', '/competitions', { name: 'X', start_date: '2026-08-01' }, athToken);
   check('TC-02.05: Non-admin → 403', cc5, 403);
 
   const { status: cc6 } = await api('GET', '/competitions');
@@ -193,7 +193,7 @@ async function main() {
   check('TC-02.11: judge_count locked after heats → 400', ce3, 400);
 
   // date locked when ACTIVE
-  const { status: ce4 } = await api('PATCH', `/competitions/${compId}`, { date: '2026-12-01' }, adminToken);
+  const { status: ce4 } = await api('PATCH', `/competitions/${compId}`, { start_date: '2026-12-01' }, adminToken);
   check('TC-02.12: date locked when ACTIVE → 400', ce4, 400);
 
   const { status: ce5 } = await api('PATCH', `/competitions/${compId}`, { name: 'X' }, athToken);
@@ -205,7 +205,7 @@ async function main() {
   check('TC-02.14: DRAFT → ACTIVE → 200', st1, 200);
 
   // Can't go DRAFT→COMPLETED
-  const { status: st4 } = await api('POST', '/competitions', { name: 'TmpComp', date: '2026-09-01', location: 'X' }, adminToken);
+  const { status: st4 } = await api('POST', '/competitions', { name: 'TmpComp', start_date: '2026-09-01', location: 'X' }, adminToken);
   const tmpCompId = (await api('GET', '/competitions')).data.competitions.find(c => c.name === 'TmpComp')?.id;
   const { status: st5 } = await api('PATCH', `/competitions/${tmpCompId}/status`, { status: 'COMPLETED' }, adminToken);
   check('TC-02.17: DRAFT → COMPLETED invalid → 400', st5, 400);
@@ -218,7 +218,7 @@ async function main() {
 
   // Staff assignment — use a fresh DRAFT competition
   log('  Scenario: Staff Assignment');
-  const { data: staffComp } = await api('POST', '/competitions', { name: 'Staff Test Comp', date: '2026-12-01', location: 'X', judge_count: 3 }, adminToken);
+  const { data: staffComp } = await api('POST', '/competitions', { name: 'Staff Test Comp', start_date: '2026-12-01', location: 'X', judge_count: 3 }, adminToken);
   const staffCompId = staffComp.id;
 
   const { data: njLogin } = await api('POST', '/auth/login', { email: 'newjudge@test.lt', password: 'p' });
@@ -303,7 +303,7 @@ async function main() {
 
   log('  Scenario: Registration CRUD');
   // Need a DRAFT competition for registration tests
-  const { data: draftComp } = await api('POST', '/competitions', { name: 'Draft Comp', date: '2026-10-01', location: 'X', judge_count: 3 }, adminToken);
+  const { data: draftComp } = await api('POST', '/competitions', { name: 'Draft Comp', start_date: '2026-10-01', location: 'X', judge_count: 3 }, adminToken);
   const draftCompId = draftComp.id;
   const { data: draftDiv } = await api('POST', `/competitions/${draftCompId}/divisions`, { name: 'Men' }, adminToken);
   const draftDivId = draftDiv.id;
@@ -325,7 +325,7 @@ async function main() {
   check('TC-04.03: Registration on non-DRAFT → 400', rr3, 400);
   await api('PATCH', `/competitions/${draftCompId}/status`, { status: 'COMPLETED' }, adminToken);
   // Recreate a DRAFT comp for further tests
-  await api('POST', '/competitions', { name: 'Draft2', date: '2026-11-01', location: 'X', judge_count: 3 }, adminToken);
+  await api('POST', '/competitions', { name: 'Draft2', start_date: '2026-11-01', location: 'X', judge_count: 3 }, adminToken);
 
   const { status: rr4 } = await api('POST', '/registrations', { division_id: draftDivId }, adminToken);
   check('TC-04.04: Non-athlete → 403', rr4, 403);

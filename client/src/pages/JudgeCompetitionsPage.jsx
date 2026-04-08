@@ -42,7 +42,8 @@ export default function JudgeCompetitionsPage() {
                 <StatusBadge status={comp.status} />
               </div>
               <p className="mb-1 text-sm text-gray-600">
-                {new Date(comp.date).toLocaleDateString('lt-LT')}
+                {new Date(comp.start_date).toLocaleDateString('lt-LT')}
+                {comp.end_date && comp.end_date !== comp.start_date && ` – ${new Date(comp.end_date).toLocaleDateString('lt-LT')}`}
               </p>
               {comp.location && (
                 <p className="mb-1 text-sm text-gray-600">{comp.location}</p>

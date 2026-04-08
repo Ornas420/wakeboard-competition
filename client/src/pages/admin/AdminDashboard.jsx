@@ -76,7 +76,10 @@ export default function AdminDashboard() {
               {competitions.map((comp) => (
                 <tr key={comp.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium">{comp.name}</td>
-                  <td className="px-4 py-3">{new Date(comp.date).toLocaleDateString('lt-LT')}</td>
+                  <td className="px-4 py-3">
+                    {new Date(comp.start_date).toLocaleDateString('lt-LT')}
+                    {comp.end_date && comp.end_date !== comp.start_date && ` – ${new Date(comp.end_date).toLocaleDateString('lt-LT')}`}
+                  </td>
                   <td className="px-4 py-3">{comp.location || '—'}</td>
                   <td className="px-4 py-3">{comp.divisions || '—'}</td>
                   <td className="px-4 py-3"><StatusBadge status={comp.status} /></td>

@@ -89,7 +89,7 @@ export default function AdminCompetitionDetail() {
           />
         ) : (
           <div className="space-y-2 text-sm text-gray-600">
-            <p><span className="font-medium text-gray-700">Date:</span> {new Date(comp.date).toLocaleDateString('lt-LT')}</p>
+            <p><span className="font-medium text-gray-700">Date:</span> {new Date(comp.start_date).toLocaleDateString('lt-LT')}{comp.end_date && comp.end_date !== comp.start_date && ` – ${new Date(comp.end_date).toLocaleDateString('lt-LT')}`}</p>
             {comp.location && <p><span className="font-medium text-gray-700">Location:</span> {comp.location}</p>}
             {comp.description && <p><span className="font-medium text-gray-700">Description:</span> {comp.description}</p>}
             {comp.timetable && (

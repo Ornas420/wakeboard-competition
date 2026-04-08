@@ -3,6 +3,17 @@ import { useParams, Link } from 'react-router-dom';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
+
+function formatDateRange(start, end) {
+  const opts = { month: 'long', day: 'numeric', year: 'numeric' };
+  const s = new Date(start).toLocaleDateString('en-US', opts);
+  if (!end || start === end) return s;
+  const sd = new Date(start), ed = new Date(end);
+  if (sd.getMonth() === ed.getMonth() && sd.getFullYear() === ed.getFullYear()) {
+    return `${sd.toLocaleDateString('en-US', { month: 'long' })} ${sd.getDate()}–${ed.getDate()}, ${sd.getFullYear()}`;
+  }
+  return `${s} – ${new Date(end).toLocaleDateString('en-US', opts)}`;
+}
 import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function CompetitionDetailPage() {
@@ -50,7 +61,7 @@ export default function CompetitionDetailPage() {
   return (
     <div>
       {/* ═══ HERO BANNER ═══ */}
-      <section className="relative flex min-h-[50vh] items-end overflow-hidden bg-navy-950">
+      <section className="relative -mt-16 flex min-h-[50vh] items-end overflow-hidden bg-navy-950">
         {comp.image_url ? (
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${comp.image_url}')` }} />
         ) : (
@@ -70,7 +81,7 @@ export default function CompetitionDetailPage() {
           <h1 className="mb-3 text-3xl font-black text-white md:text-5xl">{comp.name}</h1>
           <div className="flex flex-wrap items-center gap-4 text-sm text-white/60">
             <span>
-              {new Date(comp.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+              {formatDateRange(comp.start_date, comp.end_date)}
             </span>
             {comp.location && <span>{comp.location}</span>}
           </div>
@@ -182,7 +193,7 @@ export default function CompetitionDetailPage() {
                 <div className="flex justify-between">
                   <dt className="text-gray-500">Date</dt>
                   <dd className="font-medium text-navy-900">
-                    {new Date(comp.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                    {formatDateRange(comp.start_date, comp.end_date)}
                   </dd>
                 </div>
                 {comp.location && (

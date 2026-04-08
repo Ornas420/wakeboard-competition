@@ -42,8 +42,8 @@ export default function BrowseCompetitionsPage() {
   const filtered = competitions.filter(c => {
     if (statusFilter !== 'all' && c.status !== statusFilter) return false;
     if (levelFilter && c.level !== levelFilter) return false;
-    if (dateFrom && c.date < dateFrom) return false;
-    if (dateTo && c.date > dateTo) return false;
+    if (dateFrom && c.start_date < dateFrom) return false;
+    if (dateTo && (c.end_date || c.start_date) > dateTo) return false;
     return true;
   });
 
@@ -52,7 +52,7 @@ export default function BrowseCompetitionsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-navy-900 pt-24 pb-12">
+      <div className="-mt-16 bg-navy-900 pt-24 pb-12">
         <div className="container mx-auto px-4">
           <h1 className="text-3xl font-bold text-white md:text-4xl">Browse Competitions</h1>
           <p className="mt-2 text-white/60">Find wakeboard competitions past, present, and upcoming</p>
@@ -177,7 +177,13 @@ export default function BrowseCompetitionsPage() {
                 {/* Info */}
                 <div className="p-4">
                   <p className="mb-3 text-sm text-gray-500">
-                    {new Date(comp.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    {(() => {
+                      const s = new Date(comp.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                      if (!comp.end_date || comp.start_date === comp.end_date) return s;
+                      const sd = new Date(comp.start_date), ed = new Date(comp.end_date);
+                      if (sd.getMonth() === ed.getMonth()) return `${sd.toLocaleDateString('en-US', { month: 'long' })} ${sd.getDate()}–${ed.getDate()}, ${sd.getFullYear()}`;
+                      return `${s} – ${new Date(comp.end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+                    })()}
                     {comp.location && ` · ${comp.location}`}
                   </p>
 
