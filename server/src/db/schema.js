@@ -142,6 +142,9 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_judge_score_run_id ON judge_score(athlete_run_id);
     CREATE INDEX IF NOT EXISTS idx_heat_result_heat_id ON heat_result(heat_id);
     CREATE INDEX IF NOT EXISTS idx_stage_ranking_stage_rank ON stage_ranking(stage_id, rank);
+    CREATE INDEX IF NOT EXISTS idx_athlete_run_athlete_id ON athlete_run(athlete_id);
+    CREATE INDEX IF NOT EXISTS idx_stage_ranking_athlete_id ON stage_ranking(athlete_id, stage_id);
+    CREATE INDEX IF NOT EXISTS idx_heat_stage ON heat(stage_id);
   `);
 
   console.log('Database initialized');

@@ -35,80 +35,75 @@ router.get('/my-assignments', authenticate, authorize('JUDGE', 'HEAD_JUDGE'), (r
   res.json({ competitions });
 });
 
-// GET /competitions/:id/live-data — public (no auth)
+// GET /competitions/:id/live-data — public (no auth), optimized queries
 router.get('/:id/live-data', (req, res) => {
+  const compId = req.params.id;
   const competition = db.prepare(`
     SELECT c.id, c.name, c.date, c.location, c.status, c.video_url, c.judge_count
     FROM competition c WHERE c.id = ?
-  `).get(req.params.id);
+  `).get(compId);
 
   if (!competition) return res.status(404).json({ error: 'Competition not found' });
 
+  // Fetch all data in bulk (5 queries instead of N*M*O)
   const divisions = db.prepare(`
     SELECT d.id, d.name, d.display_order
     FROM division d WHERE d.competition_id = ?
     ORDER BY d.display_order, d.name
-  `).all(req.params.id);
+  `).all(compId);
 
+  const allStages = db.prepare(`
+    SELECT s.id, s.stage_type, s.stage_order, s.status, s.runs_per_athlete, s.athletes_advance, s.division_id
+    FROM stage s WHERE s.competition_id = ?
+    ORDER BY s.stage_order
+  `).all(compId);
+
+  const allHeats = db.prepare(`
+    SELECT h.id, h.heat_number, h.status, h.run2_reorder, h.stage_id
+    FROM heat h
+    JOIN stage s ON h.stage_id = s.id
+    WHERE s.competition_id = ? AND h.published = 1
+    ORDER BY h.heat_number
+  `).all(compId);
+  const heatIds = allHeats.map(h => `'${h.id}'`).join(',');
+
+  const allAthletes = heatIds.length > 0 ? db.prepare(`
+    SELECT ha.heat_id, ha.athlete_id, u.name, ha.run_order
+    FROM heat_athlete ha
+    JOIN user u ON ha.athlete_id = u.id
+    WHERE ha.heat_id IN (${heatIds})
+    ORDER BY ha.run_order
+  `).all() : [];
+
+  const allRuns = heatIds.length > 0 ? db.prepare(`
+    SELECT ar.id as athlete_run_id, ar.heat_id, ar.athlete_id, ar.run_number, ar.computed_score, ar.scores_submitted
+    FROM athlete_run ar
+    WHERE ar.heat_id IN (${heatIds})
+    ORDER BY ar.run_number
+  `).all() : [];
+
+  const allResults = heatIds.length > 0 ? db.prepare(`
+    SELECT hr.heat_id, hr.athlete_id, hr.best_score, hr.second_score, hr.final_rank
+    FROM heat_result hr
+    WHERE hr.heat_id IN (${heatIds})
+  `).all() : [];
+
+  // Assemble nested structure
   const result = divisions.map(div => {
-    const stages = db.prepare(`
-      SELECT s.id, s.stage_type, s.stage_order, s.status, s.runs_per_athlete, s.athletes_advance
-      FROM stage s WHERE s.division_id = ?
-      ORDER BY s.stage_order
-    `).all(div.id);
-
-    const stagesWithHeats = stages.map(stage => {
-      const heats = db.prepare(`
-        SELECT h.id, h.heat_number, h.status, h.run2_reorder
-        FROM heat h WHERE h.stage_id = ? AND h.published = 1
-        ORDER BY h.heat_number
-      `).all(stage.id);
-
-      const heatsWithData = heats.map(heat => {
-        const athletes = db.prepare(`
-          SELECT ha.athlete_id, u.name, ha.run_order
-          FROM heat_athlete ha
-          JOIN user u ON ha.athlete_id = u.id
-          WHERE ha.heat_id = ?
-          ORDER BY ha.run_order
-        `).all(heat.id);
-
-        const athletesWithScores = athletes.map(athlete => {
-          const runs = db.prepare(`
-            SELECT ar.id as athlete_run_id, ar.run_number, ar.computed_score, ar.scores_submitted
-            FROM athlete_run ar
-            WHERE ar.heat_id = ? AND ar.athlete_id = ?
-            ORDER BY ar.run_number
-          `).all(heat.id, athlete.athlete_id);
-
-          // Get heat_result if heat is APPROVED or CLOSED
-          let heatResult = null;
-          if (heat.status === 'APPROVED' || heat.status === 'CLOSED') {
-            heatResult = db.prepare(`
-              SELECT best_score, second_score, final_rank
-              FROM heat_result WHERE heat_id = ? AND athlete_id = ?
-            `).get(heat.id, athlete.athlete_id);
-          }
-
+    const stages = allStages.filter(s => s.division_id === div.id).map(stage => {
+      const heats = allHeats.filter(h => h.stage_id === stage.id).map(heat => {
+        const athletes = allAthletes.filter(a => a.heat_id === heat.id).map(athlete => {
+          const runs = allRuns.filter(r => r.heat_id === heat.id && r.athlete_id === athlete.athlete_id);
+          const heatResult = (heat.status === 'APPROVED' || heat.status === 'CLOSED')
+            ? allResults.find(r => r.heat_id === heat.id && r.athlete_id === athlete.athlete_id) || null
+            : null;
           return { ...athlete, runs, heat_result: heatResult };
         });
-
-        return { ...heat, athletes: athletesWithScores };
+        return { ...heat, athletes };
       });
-
-      // Stage ranking
-      const rankings = db.prepare(`
-        SELECT sr.athlete_id, u.name, sr.best_score, sr.rank, sr.advanced
-        FROM stage_ranking sr
-        JOIN user u ON sr.athlete_id = u.id
-        WHERE sr.stage_id = ?
-        ORDER BY sr.rank
-      `).all(stage.id);
-
-      return { ...stage, heats: heatsWithData, rankings };
+      return { ...stage, heats };
     });
-
-    return { ...div, stages: stagesWithHeats };
+    return { ...div, stages };
   });
 
   res.json({ competition, divisions: result });

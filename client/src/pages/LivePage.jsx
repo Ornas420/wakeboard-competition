@@ -37,7 +37,7 @@ export default function LivePage() {
     } finally {
       setLoading(false);
     }
-  }, [competitionId, selectedDivision]);
+  }, [competitionId]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -45,6 +45,7 @@ export default function LivePage() {
   useEffect(() => {
     if (socket && connected) {
       socket.emit('join:competition', competitionId);
+      return () => socket.emit('leave:competition', competitionId);
     }
   }, [socket, connected, competitionId]);
 

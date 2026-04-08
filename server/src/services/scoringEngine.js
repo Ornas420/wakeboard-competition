@@ -52,21 +52,24 @@ export function submitScore(athleteRunId, judgeId, score, io) {
 
   if (!run) throw err('Athlete run not found', 404);
 
-  // Status gate
-  if (run.heat_status === 'OPEN') {
-    // allowed
-  } else if (run.heat_status === 'HEAD_REVIEW') {
-    const existing = db.prepare(
-      'SELECT correction_requested FROM judge_score WHERE athlete_run_id = ? AND judge_id = ?'
-    ).get(athleteRunId, judgeId);
-    if (!existing || !existing.correction_requested) {
+  const result = db.transaction(() => {
+    // Status gate — inside transaction to prevent race conditions
+    // Re-read heat status within the transaction
+    const heatStatus = db.prepare('SELECT status FROM heat WHERE id = ?').get(run.heat_id)?.status;
+
+    if (heatStatus === 'OPEN') {
+      // allowed
+    } else if (heatStatus === 'HEAD_REVIEW') {
+      const corr = db.prepare(
+        'SELECT correction_requested FROM judge_score WHERE athlete_run_id = ? AND judge_id = ?'
+      ).get(athleteRunId, judgeId);
+      if (!corr || !corr.correction_requested) {
+        throw err('Heat is not accepting scores', 403);
+      }
+    } else {
       throw err('Heat is not accepting scores', 403);
     }
-  } else {
-    throw err('Heat is not accepting scores', 403);
-  }
 
-  const result = db.transaction(() => {
     const existing = db.prepare(
       'SELECT id FROM judge_score WHERE athlete_run_id = ? AND judge_id = ?'
     ).get(athleteRunId, judgeId);
@@ -658,6 +661,19 @@ export function reopenHeat(heatId, userId, io) {
   db.transaction(() => {
     // Delete heat_result rows
     db.prepare('DELETE FROM heat_result WHERE heat_id = ?').run(heatId);
+
+    // Reset computed_score and scores_submitted for all athlete_runs in this heat
+    db.prepare(`
+      UPDATE athlete_run SET computed_score = NULL, scores_submitted = 0
+      WHERE heat_id = ?
+    `).run(heatId);
+
+    // Delete all judge_scores for this heat's athlete_runs
+    db.prepare(`
+      DELETE FROM judge_score WHERE athlete_run_id IN (
+        SELECT id FROM athlete_run WHERE heat_id = ?
+      )
+    `).run(heatId);
 
     // Recalculate stage_ranking: remove contributions from this heat's athletes
     // and recalculate from remaining approved heats

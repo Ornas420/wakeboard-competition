@@ -199,7 +199,8 @@ export default function JudgeScoringPage() {
   const [submitStatus, setSubmitStatus] = useState(null);
   const [submitError, setSubmitError] = useState('');
   const [correctionModal, setCorrectionModal] = useState(null);
-  const [hjSelfCorrection, setHjSelfCorrection] = useState(null); // { athlete_run_id, athleteName, runNumber, currentScore }
+  const [correctionInput, setCorrectionInput] = useState(''); // separate from scoreInput
+  const [hjSelfCorrection, setHjSelfCorrection] = useState(null);
 
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -211,6 +212,10 @@ export default function JudgeScoringPage() {
   const [selectedHeatId, setSelectedHeatId] = useState(null);
 
   const inputRef = useRef(null);
+  const athleteRunsRef = useRef(athleteRuns);
+  const athletesRef = useRef(athletes);
+  athleteRunsRef.current = athleteRuns;
+  athletesRef.current = athletes;
   const advanceTimer = useRef(null);
 
   // ── Fetch data ────────────────────────────────────────────────────────
@@ -251,8 +256,11 @@ export default function JudgeScoringPage() {
 
     const handleCorrectionRequested = (data) => {
       setScoreRefetchKey(k => k + 1);
-      const targetRun = athleteRuns.find(r => r.athlete_run_id === data.athlete_run_id);
-      const targetAthlete = athletes.find(a => a.athlete_id === targetRun?.athlete_id);
+      // Use refs to read latest state
+      const runs = athleteRunsRef.current;
+      const aths = athletesRef.current;
+      const targetRun = runs.find(r => r.athlete_run_id === data.athlete_run_id);
+      const targetAthlete = aths.find(a => a.athlete_id === targetRun?.athlete_id);
       setCorrectionModal({
         athlete_run_id: data.athlete_run_id,
         note: data.note || 'Please correct your score',
@@ -282,7 +290,7 @@ export default function JudgeScoringPage() {
       socket.off('heat:opened', handleRefresh);
       socket.off('heat:status_changed', handleRefresh);
     };
-  }, [socket, fetchData, athleteRuns, athletes, user?.id]);
+  }, [socket, fetchData]);
 
   // ── Derive heats ──────────────────────────────────────────────────────
   const allHeatsGlobal = stages.flatMap(s =>
@@ -421,7 +429,7 @@ export default function JudgeScoringPage() {
         setScoreRefetchKey(k => k + 1);
       } catch (err) { setActionError(err.message); return; }
       setHjSelfCorrection({ athlete_run_id: athleteRunId, athleteName, runNumber, currentScore: score });
-      setScoreInput(String(score));
+      setCorrectionInput(String(score));
       return;
     }
     const note = prompt(`Flag ${judgeName}'s score (${score?.toFixed(1)}) for correction?\nEnter note:`);
@@ -483,24 +491,24 @@ export default function JudgeScoringPage() {
           </div>
           <form onSubmit={async (e) => {
             e.preventDefault();
-            const score = parseFloat(scoreInput);
+            const score = parseFloat(correctionInput);
             if (isNaN(score) || score < 0 || score > 100) return;
             setSubmitting(true);
             try {
               await api.post('/scores', { athlete_run_id: correctionModal.athlete_run_id, score });
               setCorrectionModal(null);
-              setScoreInput('');
+              setCorrectionInput('');
               setScoreRefetchKey(k => k + 1);
             } catch (err) { setSubmitError(err.message); }
             finally { setSubmitting(false); }
           }}>
             <input type="number" min="0" max="100" step="0.5" inputMode="decimal"
-              value={scoreInput} onChange={e => setScoreInput(e.target.value)}
+              value={correctionInput} onChange={e => setCorrectionInput(e.target.value)}
               placeholder="Enter corrected score"
               className="mb-3 w-full rounded-lg border-2 border-orange-300 px-4 py-4 text-center text-2xl font-bold outline-none focus:border-orange-500"
               style={{ fontSize: '24px' }} autoFocus />
             {submitError && <p className="mb-2 text-center text-sm text-red-600">{submitError}</p>}
-            <button type="submit" disabled={!isValidScore || submitting}
+            <button type="submit" disabled={(() => { const v = parseFloat(correctionInput); return correctionInput === '' || isNaN(v) || v < 0 || v > 100; })() || submitting}
               className="w-full rounded-lg bg-orange-600 px-4 py-3 text-lg font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
               style={{ minHeight: '48px' }}>
               {submitting ? 'Saving...' : 'Submit Correction'}
@@ -651,27 +659,27 @@ export default function JudgeScoringPage() {
                       </div>
                       <form onSubmit={async (e) => {
                         e.preventDefault();
-                        const score = parseFloat(scoreInput);
+                        const score = parseFloat(correctionInput);
                         if (isNaN(score) || score < 0 || score > 100) return;
                         setSubmitting(true);
                         try {
                           await api.post('/scores', { athlete_run_id: hjSelfCorrection.athlete_run_id, score });
                           setHjSelfCorrection(null);
-                          setScoreInput('');
+                          setCorrectionInput('');
                           setScoreRefetchKey(k => k + 1);
                         } catch (err) { setActionError(err.message); }
                         finally { setSubmitting(false); }
                       }}>
                         <input type="number" min="0" max="100" step="0.5" inputMode="decimal"
-                          value={scoreInput} onChange={e => setScoreInput(e.target.value)}
+                          value={correctionInput} onChange={e => setCorrectionInput(e.target.value)}
                           className="mb-2 w-full rounded border-2 border-orange-300 px-3 py-2 text-center text-xl font-bold outline-none focus:border-orange-500"
                           autoFocus />
                         <div className="flex gap-2">
-                          <button type="button" onClick={() => { setHjSelfCorrection(null); setScoreInput(''); }}
+                          <button type="button" onClick={() => { setHjSelfCorrection(null); setCorrectionInput(''); }}
                             className="flex-1 rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
                             Cancel
                           </button>
-                          <button type="submit" disabled={!isValidScore || submitting}
+                          <button type="submit" disabled={(() => { const v = parseFloat(correctionInput); return correctionInput === '' || isNaN(v) || v < 0 || v > 100; })() || submitting}
                             className="flex-1 rounded bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50">
                             {submitting ? 'Saving...' : 'Update Score'}
                           </button>

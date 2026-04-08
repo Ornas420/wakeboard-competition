@@ -42,7 +42,7 @@ export default function ScheduleSection({ competitionId }) {
         });
         setSchedule(heats);
       })
-      .catch(() => {});
+      .catch(err => setError(err.message));
   }, [competitionId]);
 
   const handleDragStart = (idx) => setDragIdx(idx);

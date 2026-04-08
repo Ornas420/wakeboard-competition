@@ -4,29 +4,35 @@ import { useAuth } from './AuthContext';
 
 const SocketContext = createContext(null);
 
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+
 export function SocketProvider({ children }) {
   const { user } = useAuth();
   const [connected, setConnected] = useState(false);
   const socketRef = useRef(null);
 
   useEffect(() => {
-    const socket = io('http://localhost:3001', {
+    const socket = io(SOCKET_URL, {
       autoConnect: true,
       reconnection: true,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
     });
 
     socketRef.current = socket;
 
     socket.on('connect', () => {
       setConnected(true);
-      // Re-join judge room on reconnect if authenticated
       if (user && (user.role === 'JUDGE' || user.role === 'HEAD_JUDGE')) {
         socket.emit('join:judge', user.id);
       }
     });
 
     socket.on('disconnect', () => {
+      setConnected(false);
+    });
+
+    socket.on('connect_error', () => {
       setConnected(false);
     });
 
