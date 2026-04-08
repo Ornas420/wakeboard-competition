@@ -43,11 +43,12 @@ and stage progression with per-heat advancement. Built as a bachelor's thesis pr
         StagePanel.jsx         Renders stage with heats
         HeatCard.jsx           Renders single heat
     pages/
-      HomePage.jsx              Landing: hero, featured comp, card grid, results
+      HomePage.jsx              Landing: hero, active comp slider, card grid, results
+      BrowseCompetitionsPage.jsx All competitions with filters (status, date, level)
       CompetitionDetailPage.jsx Hero banner, overview, stats, divisions, schedule sidebar
       LoginPage.jsx
       RegisterPage.jsx
-      LivePage.jsx              Public live scoreboard with real-time Socket.IO
+      LivePage.jsx              Public live scoreboard, heat ranking sidebar, competition schedule
       JudgeCompetitionsPage.jsx Judge's assigned competitions list
       JudgeScoringPage.jsx      Sequential scoring UI + Head Judge panel
       admin/
@@ -85,7 +86,7 @@ Four roles enforced via JWT middleware:
 - `ATHLETE` — registers, views schedule and results
 
 Public routes (no auth): `GET /competitions`, `GET /competitions/:id`,
-`GET /competitions/:id/live`, `GET /competitions/:id/live-data`
+`GET /competitions/:id/live`, `GET /competitions/:id/live-data`, `/browse`
 
 ## Database rules
 
@@ -113,8 +114,8 @@ Key relationships:
 
 ### Competition table columns
 ```
-id, name, date, location, description, timetable, video_url, image_url,
-prize_pool, level, judge_count, status, created_by, created_at
+id, name, start_date, end_date, location, description, timetable, video_url, image_url,
+prize_pool, level, judge_count (1–5), status, created_by, created_at
 ```
 
 ### Heat table columns
@@ -376,11 +377,16 @@ cd server && node test.js
 ### Sprint 6 (DONE) — UI redesign + polish
 - Renamed to WakeScore
 - Dark navy theme with Inter font
-- Homepage: hero, featured competition, card grid, footer
+- Homepage: hero, active competition slider, card grid, footer
+- /browse page: all competitions with filters (status, date range, level)
 - Competition detail: hero banner, two-column layout, stats, schedule sidebar
-- New fields: image_url, prize_pool, level
+- Live page: redesigned scorecard, heat ranking sidebar, competition schedule sidebar
+- New fields: image_url, prize_pool, level, start_date/end_date (multi-day support)
 - Admin improvements: staff dropdown, registration add athlete (existing + guest)
 - Heat reset functionality
+- judge_count constraint relaxed to 1–5 (was 3–5)
+- PATCH competition: silently skips locked fields (date, judge_count) instead of error
+- Fixed navbar overlap on all pages
 - 140 integration tests (server/test.js)
 
 ## Test accounts (after seeding)
@@ -390,19 +396,19 @@ cd server && node test.js
 | Admin | admin@wakeboard.lt | password123 |
 | Head Judge | headjudge@wakeboard.lt | password123 |
 | Judge 1 | judge1@wakeboard.lt | password123 |
-| Judge 2 | judge2@wakeboard.lt | password123 |
-| Judge 3 | judge3@wakeboard.lt | password123 |
 | Men Athletes | athlete1-20@wakeboard.lt | password123 |
 | Women Athletes | wathlete1-8@wakeboard.lt | password123 |
 
 ## Seeded Competitions
 
 **Competition 1: Lithuanian Wakeboard Open 2026**
-- 11 Men + 6 Women, National, €5,000 prize, ACTIVE
+- Jul 15–17, 11 Men + 6 Women, National, €5,000 prize, judge_count=2, ACTIVE
+- Full timetable, video URL, image URL
 - Men: QUAL(2) → LCQ(2) → FINAL(1)
 - Women: QUAL(1) → FINAL(1)
 
 **Competition 2: Kaunas Wakeboard Cup 2026**
-- 20 Men + 8 Women, International, €10,000 prize, ACTIVE
+- Aug 20–21, 20 Men + 8 Women, International, €10,000 prize, judge_count=2, ACTIVE
+- 2-day timetable, image URL
 - Men: QUAL(4) → LCQ(2) → SEMI(2) → FINAL(1)
 - Women: QUAL(2) → LCQ(1) → FINAL(1)
