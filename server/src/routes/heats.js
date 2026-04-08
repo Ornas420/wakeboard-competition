@@ -2,6 +2,13 @@ import { Router } from 'express';
 import db from '../db/schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { generateHeatsForDivision, deleteHeatsForDivision } from '../services/heatGeneration.js';
+import {
+  submitForReview,
+  manualReorder,
+  approveHeat,
+  closeHeat,
+  reopenHeat,
+} from '../services/scoringEngine.js';
 
 const router = Router();
 
@@ -26,7 +33,7 @@ router.get('/competition/:competitionId', authenticate, (req, res) => {
 
   const result = stages.map((stage) => {
     const heats = db.prepare(`
-      SELECT id, heat_number, status, published, run2_reorder, manually_adjusted
+      SELECT id, heat_number, status, published, run2_reorder, manually_adjusted, schedule_order
       FROM heat WHERE stage_id = ?
       ORDER BY heat_number
     `).all(stage.id);
@@ -74,6 +81,28 @@ router.delete('/division/:divisionId', authenticate, authorize('ADMIN'), (req, r
   }
 });
 
+// PATCH /heats/schedule — ADMIN only (set global heat order)
+router.patch('/schedule', authenticate, authorize('ADMIN'), (req, res) => {
+  const { schedule } = req.body;
+  if (!Array.isArray(schedule)) {
+    return res.status(400).json({ error: 'schedule must be an array of { heat_id, schedule_order }' });
+  }
+
+  const update = db.prepare('UPDATE heat SET schedule_order = ? WHERE id = ?');
+  const applySchedule = db.transaction(() => {
+    for (const entry of schedule) {
+      update.run(entry.schedule_order, entry.heat_id);
+    }
+  });
+
+  try {
+    applySchedule();
+    res.json({ updated: schedule.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PATCH /heats/publish-stage/:stageId — ADMIN only
 router.patch('/publish-stage/:stageId', authenticate, authorize('ADMIN'), (req, res) => {
   const stage = db.prepare('SELECT id FROM stage WHERE id = ?').get(req.params.stageId);
@@ -101,26 +130,16 @@ router.patch('/:id/athletes', authenticate, authorize('ADMIN'), (req, res) => {
     return res.status(400).json({ error: 'Both heats must be in the same stage' });
   }
 
-  // Check target heat capacity
   const targetCount = db.prepare('SELECT COUNT(*) as cnt FROM heat_athlete WHERE heat_id = ?').get(target_heat_id).cnt;
   if (targetCount >= 6) return res.status(400).json({ error: 'Target heat is full (max 6 athletes)' });
 
-  // Get the stage to know runs_per_athlete
-  const stage = db.prepare('SELECT runs_per_athlete FROM stage WHERE id = ?').get(sourceHeat.stage_id);
-
   const swap = db.transaction(() => {
-    // Get athlete's current entry
     const ha = db.prepare('SELECT * FROM heat_athlete WHERE heat_id = ? AND athlete_id = ?').get(req.params.id, athlete_id);
     if (!ha) throw Object.assign(new Error('Athlete not in source heat'), { status: 404 });
 
-    // Move heat_athlete
     const newOrder = targetCount + 1;
     db.prepare('UPDATE heat_athlete SET heat_id = ?, run_order = ? WHERE id = ?').run(target_heat_id, newOrder, ha.id);
-
-    // Move athlete_run rows
     db.prepare('UPDATE athlete_run SET heat_id = ? WHERE heat_id = ? AND athlete_id = ?').run(target_heat_id, req.params.id, athlete_id);
-
-    // Mark both heats as manually adjusted
     db.prepare('UPDATE heat SET manually_adjusted = 1 WHERE id IN (?, ?)').run(req.params.id, target_heat_id);
   });
 
@@ -133,26 +152,124 @@ router.patch('/:id/athletes', authenticate, authorize('ADMIN'), (req, res) => {
   }
 });
 
-// PATCH /heats/:id/status — ADMIN or HEAD_JUDGE
+// PATCH /heats/:id/status — ADMIN or HEAD_JUDGE (restricted to PENDING→OPEN and rollback)
 router.patch('/:id/status', authenticate, authorize('ADMIN', 'HEAD_JUDGE'), (req, res) => {
   const { status } = req.body;
   const heat = db.prepare('SELECT * FROM heat WHERE id = ?').get(req.params.id);
   if (!heat) return res.status(404).json({ error: 'Heat not found' });
 
-  const validTransitions = {
-    'PENDING': ['OPEN'],
-    'OPEN': ['HEAD_REVIEW'],
-    'HEAD_REVIEW': ['APPROVED'],
-    'APPROVED': ['CLOSED', 'HEAD_REVIEW'],
-    'CLOSED': []
-  };
+  // PENDING → OPEN: Admin or Head Judge opens a heat
+  if (heat.status === 'PENDING' && status === 'OPEN') {
+    db.prepare('UPDATE heat SET status = ? WHERE id = ?').run('OPEN', req.params.id);
 
-  if (!validTransitions[heat.status]?.includes(status)) {
-    return res.status(400).json({ error: `Invalid status transition: ${heat.status} → ${status}` });
+    // Get competition_id for socket emission
+    const stage = db.prepare('SELECT competition_id FROM stage WHERE id = ?').get(heat.stage_id);
+    if (stage) {
+      const io = req.app.get('io');
+      io.to(stage.competition_id).emit('heat:opened', { heat_id: req.params.id });
+    }
+
+    return res.json({ id: req.params.id, status: 'OPEN' });
   }
 
-  db.prepare('UPDATE heat SET status = ? WHERE id = ?').run(status, req.params.id);
-  res.json({ id: req.params.id, status });
+  // OPEN → PENDING: Undo accidental open (only if no scores submitted)
+  if (heat.status === 'OPEN' && status === 'PENDING') {
+    const hasScores = db.prepare(`
+      SELECT 1 FROM athlete_run ar
+      WHERE ar.heat_id = ? AND ar.scores_submitted > 0
+      LIMIT 1
+    `).get(req.params.id);
+
+    if (hasScores) {
+      return res.status(400).json({ error: 'Cannot revert — scores have been submitted' });
+    }
+
+    db.prepare('UPDATE heat SET status = ? WHERE id = ?').run('PENDING', req.params.id);
+
+    const stage = db.prepare('SELECT competition_id FROM stage WHERE id = ?').get(heat.stage_id);
+    if (stage) {
+      const io = req.app.get('io');
+      io.to(stage.competition_id).emit('heat:closed', { heat_id: req.params.id, stage_id: heat.stage_id });
+    }
+
+    return res.json({ id: req.params.id, status: 'PENDING' });
+  }
+
+  // APPROVED → HEAD_REVIEW: Rollback (Head Judge reopens)
+  if (heat.status === 'APPROVED' && status === 'HEAD_REVIEW') {
+    try {
+      const result = reopenHeat(req.params.id, req.user.id, req.app.get('io'));
+      return res.json(result);
+    } catch (err) {
+      const s = err.status || 500;
+      return res.status(s).json({ error: err.message });
+    }
+  }
+
+  return res.status(400).json({
+    error: `Invalid status transition: ${heat.status} → ${status}. Use dedicated endpoints for review/approve/close.`,
+  });
+});
+
+// POST /heats/:id/review — HEAD_JUDGE (OPEN → HEAD_REVIEW)
+router.post('/:id/review', authenticate, authorize('HEAD_JUDGE'), (req, res) => {
+  try {
+    const result = submitForReview(req.params.id, req.user.id);
+
+    // Emit so judges instantly see waiting screen
+    const heat = db.prepare('SELECT stage_id FROM heat WHERE id = ?').get(req.params.id);
+    const stage = db.prepare('SELECT competition_id FROM stage WHERE id = ?').get(heat.stage_id);
+    if (stage) {
+      req.app.get('io').to(stage.competition_id).emit('heat:status_changed', { heat_id: req.params.id, status: 'HEAD_REVIEW' });
+    }
+
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    const response = { error: err.message };
+    if (err.missing) response.missing = err.missing;
+    res.status(status).json(response);
+  }
+});
+
+// PATCH /heats/:id/ranking — HEAD_JUDGE (manual reorder)
+router.patch('/:id/ranking', authenticate, authorize('HEAD_JUDGE'), (req, res) => {
+  const { ranking } = req.body;
+  if (!Array.isArray(ranking)) {
+    return res.status(400).json({ error: 'ranking must be an array' });
+  }
+
+  try {
+    const result = manualReorder(req.params.id, ranking, req.user.id);
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// POST /heats/:id/approve — HEAD_JUDGE
+router.post('/:id/approve', authenticate, authorize('HEAD_JUDGE'), (req, res) => {
+  try {
+    const result = approveHeat(req.params.id, req.user.id, req.app.get('io'));
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    const response = { error: err.message };
+    if (err.missing) response.missing = err.missing;
+    res.status(status).json(response);
+  }
+});
+
+// POST /heats/:id/close — HEAD_JUDGE
+router.post('/:id/close', authenticate, authorize('HEAD_JUDGE'), (req, res) => {
+  try {
+    const result = closeHeat(req.params.id, req.user.id, req.app.get('io'));
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 export default router;

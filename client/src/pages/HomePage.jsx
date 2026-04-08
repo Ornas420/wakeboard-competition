@@ -51,6 +51,15 @@ export default function HomePage() {
                   {comp.athlete_count} athlete{comp.athlete_count !== 1 ? 's' : ''} registered
                 </p>
               </div>
+              {comp.status === 'ACTIVE' && (
+                <div
+                  onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/competitions/${comp.id}/live`; }}
+                  className="mt-3 flex cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
+                >
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                  Watch Live
+                </div>
+              )}
             </Link>
           ))}
         </div>

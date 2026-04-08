@@ -35,6 +35,15 @@ app.use('/api/scores', scoreRoutes);
 // Socket.IO
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
+
+  socket.on('join:competition', (competitionId) => {
+    socket.join(competitionId);
+  });
+
+  socket.on('join:judge', (userId) => {
+    socket.join(`judge:${userId}`);
+  });
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });

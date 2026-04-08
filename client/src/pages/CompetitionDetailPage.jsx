@@ -61,7 +61,18 @@ export default function CompetitionDetailPage() {
       <div className="rounded-lg border bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-start justify-between">
           <h1 className="text-2xl font-bold text-gray-900">{comp.name}</h1>
-          <StatusBadge status={comp.status} />
+          <div className="flex items-center gap-2">
+            {comp.status === 'ACTIVE' && (
+              <Link
+                to={`/competitions/${id}/live`}
+                className="flex items-center gap-1.5 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
+              >
+                <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                Watch Live
+              </Link>
+            )}
+            <StatusBadge status={comp.status} />
+          </div>
         </div>
 
         <div className="mb-6 grid grid-cols-2 gap-4 text-sm text-gray-600">

@@ -79,7 +79,8 @@ export function initDb() {
       published INTEGER NOT NULL DEFAULT 0,
       manually_adjusted INTEGER NOT NULL DEFAULT 0,
       run2_reorder INTEGER NOT NULL DEFAULT 0,
-      scheduled_time TEXT
+      scheduled_time TEXT,
+      schedule_order INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS heat_athlete (

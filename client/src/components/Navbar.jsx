@@ -20,6 +20,10 @@ export default function Navbar() {
         <div className="flex items-center gap-4">
           <Link to="/" className="hover:text-blue-200">Competitions</Link>
 
+          {(user?.role === 'JUDGE' || user?.role === 'HEAD_JUDGE') && (
+            <Link to="/judge/competitions" className="hover:text-blue-200">Judge</Link>
+          )}
+
           {user?.role === 'ADMIN' && (
             <Link to="/admin" className="hover:text-blue-200">Admin</Link>
           )}
