@@ -171,7 +171,7 @@ export default function CompetitionDetailPage() {
                 className="mb-6 flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-6 py-3 font-semibold text-white transition hover:bg-red-700"
               >
                 <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
-                Watch Live Stream
+                Watch Live Results
               </Link>
             )}
 

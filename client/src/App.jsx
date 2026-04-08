@@ -13,6 +13,7 @@ import AdminCompetitionDetail from './pages/admin/AdminCompetitionDetail';
 import JudgeCompetitionsPage from './pages/JudgeCompetitionsPage';
 import JudgeScoringPage from './pages/JudgeScoringPage';
 import LivePage from './pages/LivePage';
+import BrowseCompetitionsPage from './pages/BrowseCompetitionsPage';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<HomePage />} />
+              <Route path="/browse" element={<BrowseCompetitionsPage />} />
               <Route path="/competitions/:id" element={<CompetitionDetailPage />} />
               <Route path="/competitions/:id/live" element={<LivePage />} />
               <Route path="/login" element={<LoginPage />} />
