@@ -42,6 +42,9 @@ and stage progression with per-heat advancement. Built as a bachelor's thesis pr
         ScheduleSection.jsx    Draggable global heat order
         StagePanel.jsx         Renders stage with heats
         HeatCard.jsx           Renders single heat
+    utils/
+      format.js             Shared: formatDateRange, STAGE_LABELS, GRADIENTS, getHeatStatusColor
+      format.test.js        26 frontend unit tests
     pages/
       HomePage.jsx              Landing: hero, active comp slider, card grid, results
       BrowseCompetitionsPage.jsx All competitions with filters (status, date, level)
@@ -71,9 +74,12 @@ and stage progression with per-heat advancement. Built as a bachelor's thesis pr
     middleware/
       auth.js           JWT verify + role guard
     services/
-      heatGeneration.js IWWF heat generation engine (complete)
-      scoringEngine.js  Score submission, approval, stage progression (complete)
-  test.js               140 integration tests across 9 scenarios
+      heatGeneration.js IWWF heat generation engine (complete, JSDoc)
+      scoringEngine.js  Score submission, approval, stage progression (complete, JSDoc)
+    utils/
+      events.js         Socket.IO event name constants (EVENTS object)
+  test.js               140 E2E integration tests across 9 scenarios
+  test.unit.js          223 unit tests (pure logic: algorithms, formats, constants)
 ```
 
 ## Roles
@@ -351,8 +357,12 @@ cd server && npm run dev
 # Run seed data (2 competitions, full data)
 cd server && node src/db/seed.js
 
-# Run tests (140 integration tests)
-cd server && node test.js
+# Run unit tests (249 tests, no server needed)
+cd server && node test.unit.js
+node client/src/utils/format.test.js
+
+# Run E2E tests (140 tests, server must be running)
+cd server && node src/db/seed.js && node test.js
 ```
 
 ## Sprint progress
@@ -387,7 +397,11 @@ cd server && node test.js
 - judge_count constraint relaxed to 1–5 (was 3–5)
 - PATCH competition: silently skips locked fields (date, judge_count) instead of error
 - Fixed navbar overlap on all pages
-- 140 integration tests (server/test.js)
+- Extracted shared utilities: formatDateRange, STAGE_LABELS, GRADIENTS, getHeatStatusColor
+- Socket event constants (server/src/utils/events.js)
+- JSDoc on all scoringEngine exported functions
+- Standardized auth.js (async bcrypt, authorize middleware)
+- 389 total tests: 223 unit + 26 frontend unit + 140 E2E
 
 ## Test accounts (after seeding)
 
