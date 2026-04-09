@@ -3,13 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import LoadingSpinner from '../components/LoadingSpinner';
 import StatusBadge from '../components/StatusBadge';
-
-const GRADIENTS = [
-  'from-navy-800 to-blue-900',
-  'from-navy-900 to-indigo-900',
-  'from-slate-800 to-navy-800',
-  'from-navy-700 to-cyan-900',
-];
+import { GRADIENTS, formatDateRange } from '../utils/format';
 
 const STATUS_TABS = [
   { key: 'all', label: 'All' },
@@ -177,13 +171,7 @@ export default function BrowseCompetitionsPage() {
                 {/* Info */}
                 <div className="p-4">
                   <p className="mb-3 text-sm text-gray-500">
-                    {(() => {
-                      const s = new Date(comp.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                      if (!comp.end_date || comp.start_date === comp.end_date) return s;
-                      const sd = new Date(comp.start_date), ed = new Date(comp.end_date);
-                      if (sd.getMonth() === ed.getMonth()) return `${sd.toLocaleDateString('en-US', { month: 'long' })} ${sd.getDate()}–${ed.getDate()}, ${sd.getFullYear()}`;
-                      return `${s} – ${new Date(comp.end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
-                    })()}
+                    {formatDateRange(comp.start_date, comp.end_date)}
                     {comp.location && ` · ${comp.location}`}
                   </p>
 

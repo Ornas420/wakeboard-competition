@@ -2,26 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import LoadingSpinner from '../components/LoadingSpinner';
-
-function formatDateRange(start, end) {
-  const opts = { month: 'short', day: 'numeric', year: 'numeric' };
-  const s = new Date(start).toLocaleDateString('en-US', opts);
-  if (!end || start === end) return s;
-  const e = new Date(end).toLocaleDateString('en-US', opts);
-  // Same month+year: "Jul 15–17, 2026"
-  const sd = new Date(start), ed = new Date(end);
-  if (sd.getMonth() === ed.getMonth() && sd.getFullYear() === ed.getFullYear()) {
-    return `${sd.toLocaleDateString('en-US', { month: 'short' })} ${sd.getDate()}–${ed.getDate()}, ${sd.getFullYear()}`;
-  }
-  return `${s} – ${e}`;
-}
-
-const GRADIENTS = [
-  'from-navy-800 to-blue-900',
-  'from-navy-900 to-indigo-900',
-  'from-slate-800 to-navy-800',
-  'from-navy-700 to-cyan-900',
-];
+import { formatDateRange, GRADIENTS } from '../utils/format';
 
 export default function HomePage() {
   const [competitions, setCompetitions] = useState([]);

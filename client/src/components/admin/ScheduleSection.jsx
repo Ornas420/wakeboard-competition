@@ -1,14 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api';
 import StatusBadge from '../StatusBadge';
-
-const STAGE_LABELS = {
-  QUALIFICATION: 'Qual',
-  LCQ: 'LCQ',
-  QUARTERFINAL: 'QF',
-  SEMIFINAL: 'Semi',
-  FINAL: 'Final',
-};
+import { STAGE_LABELS } from '../../utils/format';
 
 export default function ScheduleSection({ competitionId }) {
   const [schedule, setSchedule] = useState([]);

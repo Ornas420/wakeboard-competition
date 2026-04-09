@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import db from '../db/schema.js';
 import { ladderDistribute, stepladderDistribute } from './heatGeneration.js';
+import { EVENTS } from '../utils/events.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -31,8 +32,34 @@ function err(message, status) {
   return Object.assign(new Error(message), { status });
 }
 
+/**
+ * Validate that all athlete_run rows in a heat have computed_score set (non-null).
+ * @param {string} heatId
+ * @returns {{ valid: boolean, missing: Array }} missing list if invalid
+ */
+function validateAllScoresComputed(heatId) {
+  const missing = db.prepare(`
+    SELECT ar.athlete_id, u.name, ar.run_number
+    FROM athlete_run ar
+    JOIN user u ON ar.athlete_id = u.id
+    WHERE ar.heat_id = ? AND ar.computed_score IS NULL
+  `).all(heatId);
+  return { valid: missing.length === 0, missing };
+}
+
 // ── 1. Score Submission ──────────────────────────────────────────────────
 
+/**
+ * Submit or update a judge's score for an athlete run.
+ * Triggers computed_score calculation when all judges have scored.
+ * Handles Finals Run 2 reorder when all Run 1 scores are computed.
+ * @param {string} athleteRunId - The athlete_run to score
+ * @param {string} judgeId - The judge submitting the score
+ * @param {number} score - Score value (0.0–100.0)
+ * @param {object} io - Socket.IO server instance
+ * @returns {{ judge_score_id, athlete_run_id, score, scores_submitted, computed_score }}
+ * @throws {Error} 400 if score out of range, 403 if heat not accepting scores, 404 if run not found
+ */
 export function submitScore(athleteRunId, judgeId, score, io) {
   // Validate score range
   if (typeof score !== 'number' || score < 0 || score > 100) {
@@ -149,13 +176,13 @@ export function submitScore(athleteRunId, judgeId, score, io) {
   // Emit outside transaction
   if (io) {
     // Always emit score:submitted so all clients can refetch
-    io.to(run.competition_id).emit('score:submitted', {
+    io.to(run.competition_id).emit(EVENTS.SCORE_SUBMITTED, {
       athlete_run_id: athleteRunId,
       heat_id: run.heat_id,
     });
 
     if (result.computed_score !== null) {
-      io.to(run.competition_id).emit('score:computed', {
+      io.to(run.competition_id).emit(EVENTS.SCORE_COMPUTED, {
         athlete_run_id: athleteRunId,
         athlete_id: run.athlete_id,
         run_number: run.run_number,
@@ -170,6 +197,15 @@ export function submitScore(athleteRunId, judgeId, score, io) {
 
 // ── 2. Correction Request ────────────────────────────────────────────────
 
+/**
+ * Head Judge requests a score correction from a specific judge.
+ * Sets correction_requested flag and emits socket event to the judge.
+ * @param {string} judgeScoreId - The judge_score row to flag
+ * @param {string} note - Correction note for the judge
+ * @param {string} requesterId - HEAD_JUDGE user ID
+ * @param {object} io - Socket.IO server instance
+ * @returns {{ judge_score_id, correction_requested: true }}
+ */
 export function requestCorrection(judgeScoreId, note, requesterId, io) {
   const js = db.prepare(`
     SELECT js.id, js.judge_id, js.athlete_run_id,
@@ -193,7 +229,7 @@ export function requestCorrection(judgeScoreId, note, requesterId, io) {
   ).run(note || null, judgeScoreId);
 
   if (io) {
-    io.to(`judge:${js.judge_id}`).emit('correction:requested', {
+    io.to(`judge:${js.judge_id}`).emit(EVENTS.CORRECTION_REQUESTED, {
       judge_id: js.judge_id,
       athlete_run_id: js.athlete_run_id,
       note: note || null,
@@ -205,6 +241,13 @@ export function requestCorrection(judgeScoreId, note, requesterId, io) {
 
 // ── 3. Submit for Review ─────────────────────────────────────────────────
 
+/**
+ * Transition heat from OPEN to HEAD_REVIEW.
+ * Validates all computed_scores are non-null before allowing transition.
+ * @param {string} heatId
+ * @param {string} userId - HEAD_JUDGE user ID
+ * @returns {{ heat_id, status: 'HEAD_REVIEW' }}
+ */
 export function submitForReview(heatId, userId) {
   const ctx = getHeatContext(heatId);
   verifyHeadJudge(ctx.competition_id, userId);
@@ -214,14 +257,8 @@ export function submitForReview(heatId, userId) {
   }
 
   // Check all computed_scores are non-null
-  const missing = db.prepare(`
-    SELECT ar.athlete_id, u.name, ar.run_number
-    FROM athlete_run ar
-    JOIN user u ON ar.athlete_id = u.id
-    WHERE ar.heat_id = ? AND ar.computed_score IS NULL
-  `).all(heatId);
-
-  if (missing.length > 0) {
+  const { valid, missing } = validateAllScoresComputed(heatId);
+  if (!valid) {
     throw Object.assign(new Error('Missing scores'), { status: 409, missing });
   }
 
@@ -231,6 +268,14 @@ export function submitForReview(heatId, userId) {
 
 // ── 4. Manual Reorder ────────────────────────────────────────────────────
 
+/**
+ * Head Judge manually reorders athlete ranking within a heat.
+ * Upserts heat_result rows with custom final_rank values.
+ * @param {string} heatId
+ * @param {Array<{athlete_id: string, final_rank: number}>} ranking
+ * @param {string} userId - HEAD_JUDGE user ID
+ * @returns {{ heat_id, ranking_updated: true }}
+ */
 export function manualReorder(heatId, ranking, userId) {
   const ctx = getHeatContext(heatId);
   verifyHeadJudge(ctx.competition_id, userId);
@@ -294,6 +339,15 @@ export function manualReorder(heatId, ranking, userId) {
 
 // ── 5. Approve Heat ──────────────────────────────────────────────────────
 
+/**
+ * Approve a heat: compute rankings, write heat_result, update stage_ranking.
+ * Auto-ranks athletes by best_score DESC if no manual ranking exists.
+ * Emits heat:approved and leaderboard:updated socket events.
+ * @param {string} heatId
+ * @param {string} userId - HEAD_JUDGE user ID
+ * @param {object} io - Socket.IO server instance
+ * @returns {{ heat_id, status: 'APPROVED', results: Array }}
+ */
 export function approveHeat(heatId, userId, io) {
   const ctx = getHeatContext(heatId);
   verifyHeadJudge(ctx.competition_id, userId);
@@ -303,14 +357,8 @@ export function approveHeat(heatId, userId, io) {
   }
 
   // Validate all computed_scores non-null
-  const missing = db.prepare(`
-    SELECT ar.athlete_id, u.name, ar.run_number
-    FROM athlete_run ar
-    JOIN user u ON ar.athlete_id = u.id
-    WHERE ar.heat_id = ? AND ar.computed_score IS NULL
-  `).all(heatId);
-
-  if (missing.length > 0) {
+  const { valid, missing } = validateAllScoresComputed(heatId);
+  if (!valid) {
     throw Object.assign(new Error('Missing scores'), { status: 409, missing });
   }
 
@@ -413,7 +461,7 @@ export function approveHeat(heatId, userId, io) {
 
   // Emit events outside transaction
   if (io) {
-    io.to(ctx.competition_id).emit('heat:approved', {
+    io.to(ctx.competition_id).emit(EVENTS.HEAT_APPROVED, {
       heat_id: heatId,
       results: results.map(r => ({
         athlete_id: r.athlete_id,
@@ -430,7 +478,7 @@ export function approveHeat(heatId, userId, io) {
       ORDER BY sr.rank
     `).all(ctx.stage_id);
 
-    io.to(ctx.competition_id).emit('leaderboard:updated', {
+    io.to(ctx.competition_id).emit(EVENTS.LEADERBOARD_UPDATED, {
       stage_id: ctx.stage_id,
       rankings,
     });
@@ -441,6 +489,14 @@ export function approveHeat(heatId, userId, io) {
 
 // ── 6. Close Heat + Stage Progression ────────────────────────────────────
 
+/**
+ * Close an approved heat. Triggers stage progression if all heats in stage are closed.
+ * Per-heat advancement: top N athletes from each heat advance, interleaved by rank.
+ * @param {string} heatId
+ * @param {string} userId - HEAD_JUDGE user ID
+ * @param {object} io - Socket.IO server instance
+ * @returns {{ heat_id, status: 'CLOSED', stage_complete: boolean, next_action: string }}
+ */
 export function closeHeat(heatId, userId, io) {
   const ctx = getHeatContext(heatId);
   verifyHeadJudge(ctx.competition_id, userId);
@@ -452,7 +508,7 @@ export function closeHeat(heatId, userId, io) {
   db.prepare('UPDATE heat SET status = ? WHERE id = ?').run('CLOSED', heatId);
 
   if (io) {
-    io.to(ctx.competition_id).emit('heat:closed', {
+    io.to(ctx.competition_id).emit(EVENTS.HEAT_CLOSED, {
       heat_id: heatId,
       stage_id: ctx.stage_id,
     });
@@ -658,6 +714,15 @@ function completeStageAndAdvance(stageId, ctx, io) {
 
 // ── 7. Reopen Heat (rollback APPROVED → HEAD_REVIEW) ─────────────────────
 
+/**
+ * Rollback an approved heat to HEAD_REVIEW.
+ * Deletes all heat_result, judge_score rows and resets computed_score.
+ * Recalculates stage_ranking for affected athletes.
+ * @param {string} heatId
+ * @param {string} userId - HEAD_JUDGE user ID
+ * @param {object} io - Socket.IO server instance
+ * @returns {{ heat_id, status: 'HEAD_REVIEW' }}
+ */
 export function reopenHeat(heatId, userId, io) {
   const ctx = getHeatContext(heatId);
   verifyHeadJudge(ctx.competition_id, userId);

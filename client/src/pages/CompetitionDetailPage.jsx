@@ -3,17 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
-
-function formatDateRange(start, end) {
-  const opts = { month: 'long', day: 'numeric', year: 'numeric' };
-  const s = new Date(start).toLocaleDateString('en-US', opts);
-  if (!end || start === end) return s;
-  const sd = new Date(start), ed = new Date(end);
-  if (sd.getMonth() === ed.getMonth() && sd.getFullYear() === ed.getFullYear()) {
-    return `${sd.toLocaleDateString('en-US', { month: 'long' })} ${sd.getDate()}–${ed.getDate()}, ${sd.getFullYear()}`;
-  }
-  return `${s} – ${new Date(end).toLocaleDateString('en-US', opts)}`;
-}
+import { formatDateRange } from '../utils/format';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function CompetitionDetailPage() {

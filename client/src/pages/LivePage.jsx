@@ -2,14 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useSocket } from '../context/SocketContext';
 import LoadingSpinner from '../components/LoadingSpinner';
-
-const STAGE_LABELS = {
-  QUALIFICATION: 'Qualification',
-  LCQ: 'LCQ',
-  QUARTERFINAL: 'Quarter-finals',
-  SEMIFINAL: 'Semi-finals',
-  FINAL: 'Final',
-};
+import { STAGE_LABELS, getHeatStatusColor, formatDateRange } from '../utils/format';
 
 export default function LivePage() {
   const { id: competitionId } = useParams();
@@ -143,7 +136,7 @@ export default function LivePage() {
   const allHeatsFlat = divisions.flatMap(d =>
     d.stages.flatMap(s => s.heats.map(h => ({ ...h, divId: d.id, divName: d.name, stageType: s.stage_type, stageId: s.id })))
   );
-  const liveHeat = allHeatsFlat.find(h => h.status === 'OPEN');
+  const liveHeat = allHeatsFlat.find(h => h.status === 'OPEN' || h.status === 'HEAD_REVIEW');
 
   // ═══════════════ RENDER ═══════════════════════════════════════════════
   if (loading) return <LoadingSpinner />;
@@ -162,13 +155,7 @@ export default function LivePage() {
               </Link>
               <h1 className="text-2xl font-bold text-white md:text-3xl">{competition.name}</h1>
               <p className="mt-1 text-sm text-white/50">
-                {(() => {
-                  const s = new Date(competition.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                  if (!competition.end_date || competition.start_date === competition.end_date) return s;
-                  const sd = new Date(competition.start_date), ed = new Date(competition.end_date);
-                  if (sd.getMonth() === ed.getMonth()) return `${sd.toLocaleDateString('en-US', { month: 'long' })} ${sd.getDate()}–${ed.getDate()}, ${sd.getFullYear()}`;
-                  return `${s} – ${new Date(competition.end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
-                })()}
+                {formatDateRange(competition.start_date, competition.end_date)}
                 {competition.location && ` · ${competition.location}`}
               </p>
             </div>
@@ -247,11 +234,7 @@ export default function LivePage() {
                         ? 'bg-navy-900 text-white'
                         : 'bg-white text-gray-500 hover:bg-gray-100 border border-gray-200'
                     }`}>
-                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${
-                      heat.status === 'OPEN' ? 'animate-pulse bg-green-400' :
-                      heat.status === 'APPROVED' || heat.status === 'CLOSED' ? 'bg-blue-400' :
-                      heat.status === 'HEAD_REVIEW' ? 'bg-orange-400' : 'bg-gray-300'
-                    }`} />
+                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${getHeatStatusColor(heat.status)}`} />
                     Heat {heat.heat_number}
                   </button>
                 ))}

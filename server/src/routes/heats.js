@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db/schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { generateHeatsForDivision, deleteHeatsForDivision } from '../services/heatGeneration.js';
+import { EVENTS } from '../utils/events.js';
 import {
   submitForReview,
   manualReorder,
@@ -166,7 +167,7 @@ router.patch('/:id/status', authenticate, authorize('ADMIN', 'HEAD_JUDGE'), (req
     const stage = db.prepare('SELECT competition_id FROM stage WHERE id = ?').get(heat.stage_id);
     if (stage) {
       const io = req.app.get('io');
-      io.to(stage.competition_id).emit('heat:opened', { heat_id: req.params.id });
+      io.to(stage.competition_id).emit(EVENTS.HEAT_OPENED, { heat_id: req.params.id });
     }
 
     return res.json({ id: req.params.id, status: 'OPEN' });
@@ -189,7 +190,7 @@ router.patch('/:id/status', authenticate, authorize('ADMIN', 'HEAD_JUDGE'), (req
     const stage = db.prepare('SELECT competition_id FROM stage WHERE id = ?').get(heat.stage_id);
     if (stage) {
       const io = req.app.get('io');
-      io.to(stage.competition_id).emit('heat:closed', { heat_id: req.params.id, stage_id: heat.stage_id });
+      io.to(stage.competition_id).emit(EVENTS.HEAT_CLOSED, { heat_id: req.params.id, stage_id: heat.stage_id });
     }
 
     return res.json({ id: req.params.id, status: 'PENDING' });
@@ -244,7 +245,7 @@ router.post('/:id/reset', authenticate, authorize('ADMIN', 'HEAD_JUDGE'), (req, 
   const stage = db.prepare('SELECT competition_id FROM stage WHERE id = ?').get(heat.stage_id);
   if (stage) {
     const io = req.app.get('io');
-    io.to(stage.competition_id).emit('heat:status_changed', { heat_id: req.params.id, status: 'PENDING' });
+    io.to(stage.competition_id).emit(EVENTS.HEAT_STATUS_CHANGED, { heat_id: req.params.id, status: 'PENDING' });
   }
 
   res.json({ id: req.params.id, status: 'PENDING', message: 'Heat reset — all scores cleared' });
@@ -259,7 +260,7 @@ router.post('/:id/review', authenticate, authorize('HEAD_JUDGE'), (req, res) => 
     const heat = db.prepare('SELECT stage_id FROM heat WHERE id = ?').get(req.params.id);
     const stage = db.prepare('SELECT competition_id FROM stage WHERE id = ?').get(heat.stage_id);
     if (stage) {
-      req.app.get('io').to(stage.competition_id).emit('heat:status_changed', { heat_id: req.params.id, status: 'HEAD_REVIEW' });
+      req.app.get('io').to(stage.competition_id).emit(EVENTS.HEAT_STATUS_CHANGED, { heat_id: req.params.id, status: 'HEAD_REVIEW' });
     }
 
     res.json(result);

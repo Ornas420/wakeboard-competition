@@ -161,8 +161,8 @@ async function main() {
   const { status: cc2 } = await api('POST', '/competitions', { start_date: '2026-08-01' }, adminToken);
   check('TC-02.02: Missing name → 400', cc2, 400);
 
-  const { status: cc3 } = await api('POST', '/competitions', { name: 'X', start_date: '2026-08-01', judge_count: 2 }, adminToken);
-  check('TC-02.03: judge_count 2 → 400', cc3, 400);
+  const { status: cc3 } = await api('POST', '/competitions', { name: 'X', start_date: '2026-08-01', location: 'X', judge_count: 0 }, adminToken);
+  check('TC-02.03: judge_count 0 → 400', cc3, 400);
 
   const { status: cc4 } = await api('POST', '/competitions', { name: 'X', start_date: '2026-08-01', judge_count: 6 }, adminToken);
   check('TC-02.04: judge_count 6 → 400', cc4, 400);
@@ -454,22 +454,20 @@ async function main() {
   const { status: sv9 } = await api('POST', '/scores', { athlete_run_id: firstRunId, score: 50 }, athToken);
   check('TC-06.09: Non-judge → 403', sv9, 403);
 
-  // Score computation
+  // Score computation (judge_count=2: computed after 2nd judge)
   log('  Scenario: Score Computation');
   const secondRunId = h1Runs[1]?.athlete_run_id;
   const { data: sc10 } = await api('POST', '/scores', { athlete_run_id: secondRunId, score: 60 }, j1Token);
   check('TC-06.10: After 1 judge → computed null', sc10?.computed_score, null);
 
-  const { data: sc11 } = await api('POST', '/scores', { athlete_run_id: secondRunId, score: 70 }, j2Token);
-  check('TC-06.11: After 2 judges → computed null', sc11?.computed_score, null);
+  const { data: sc11 } = await api('POST', '/scores', { athlete_run_id: secondRunId, score: 80 }, hjToken);
+  assert('TC-06.11: After 2nd judge (judge_count=2) → computed_score set', sc11?.computed_score !== null);
+  check('TC-06.12: AVG(60,80)=70', sc11?.computed_score, 70);
 
-  const { data: sc12 } = await api('POST', '/scores', { athlete_run_id: secondRunId, score: 80 }, j3Token);
-  assert('TC-06.12: After 3 judges → computed_score set', sc12?.computed_score !== null);
-  check('TC-06.12b: AVG(60,70,80)=70', sc12?.computed_score, 70);
-
-  // Upsert
+  // Upsert: same judge re-scores → updates, computed_score recalculated
   const { data: sc13 } = await api('POST', '/scores', { athlete_run_id: secondRunId, score: 90 }, j1Token);
   assert('TC-06.13: Upsert updates score', sc13?.computed_score !== null);
+  check('TC-06.13b: AVG(90,80)=85', sc13?.computed_score, 85);
 
   // ═══════════════════════════════════════════════════════════════════════
   // TS-07: Heat Lifecycle

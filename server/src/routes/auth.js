@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import db from '../db/schema.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-to-a-random-secret';
@@ -69,10 +69,7 @@ router.get('/me', authenticate, (req, res) => {
 });
 
 // GET /auth/athletes — ADMIN only, lists all ATHLETE users
-router.get('/athletes', authenticate, (req, res) => {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Only admins can list athletes' });
-  }
+router.get('/athletes', authenticate, authorize('ADMIN'), (req, res) => {
   const athletes = db.prepare(
     "SELECT id, name, email FROM user WHERE role = 'ATHLETE' ORDER BY name"
   ).all();
@@ -80,10 +77,7 @@ router.get('/athletes', authenticate, (req, res) => {
 });
 
 // GET /auth/judges — ADMIN only, lists all JUDGE and HEAD_JUDGE users
-router.get('/judges', authenticate, (req, res) => {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Only admins can list judges' });
-  }
+router.get('/judges', authenticate, authorize('ADMIN'), (req, res) => {
   const judges = db.prepare(
     "SELECT id, name, email, role FROM user WHERE role IN ('JUDGE', 'HEAD_JUDGE') ORDER BY role, name"
   ).all();
@@ -91,11 +85,7 @@ router.get('/judges', authenticate, (req, res) => {
 });
 
 // POST /auth/create-staff — ADMIN only, creates JUDGE or HEAD_JUDGE accounts
-router.post('/create-staff', authenticate, (req, res) => {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Only admins can create staff accounts' });
-  }
-
+router.post('/create-staff', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
@@ -108,7 +98,7 @@ router.post('/create-staff', authenticate, (req, res) => {
     }
 
     const id = uuidv4();
-    const password_hash = bcrypt.hashSync(password, 10);
+    const password_hash = await bcrypt.hash(password, 10);
 
     db.prepare(
       'INSERT INTO user (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
