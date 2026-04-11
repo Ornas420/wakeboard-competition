@@ -357,12 +357,12 @@ cd server && npm run dev
 # Run seed data (2 competitions, full data)
 cd server && node src/db/seed.js
 
-# Run unit tests (249 tests, no server needed)
+# Run unit tests (252 tests, no server needed)
 cd server && node test.unit.js
 node client/src/utils/format.test.js
 
-# Run E2E tests (140 tests, server must be running)
-cd server && node src/db/seed.js && node test.js
+# Run E2E tests (140 tests, server must be running, auto-seeds DB)
+cd server && node test.js
 ```
 
 ## Sprint progress
@@ -395,13 +395,20 @@ cd server && node src/db/seed.js && node test.js
 - Admin improvements: staff dropdown, registration add athlete (existing + guest)
 - Heat reset functionality
 - judge_count constraint relaxed to 1–5 (was 3–5)
-- PATCH competition: silently skips locked fields (date, judge_count) instead of error
+- PATCH competition: judge_count always editable, auto-syncs with staff count
 - Fixed navbar overlap on all pages
 - Extracted shared utilities: formatDateRange, STAGE_LABELS, GRADIENTS, getHeatStatusColor
 - Socket event constants (server/src/utils/events.js)
 - JSDoc on all scoringEngine exported functions
 - Standardized auth.js (async bcrypt, authorize middleware)
-- 389 total tests: 223 unit + 26 frontend unit + 140 E2E
+- 392 total tests: 226 unit + 26 frontend unit + 140 E2E
+
+### Sprint 7 (DONE) — IWWF compliance fixes + production readiness
+- Fixed stepladderDistribute: even distribution across heats per IWWF spec (was concentrating weak athletes)
+- HTTPS-ready: SocketContext auto-detects protocol in production via window.location.origin
+- COMPLETED competitions: "View Results" button on detail page, "RESULTS" badge on live page
+- E2E tests auto-seed DB before and after runs for clean state
+- Staff removal no longer blocked by active heats
 
 ## Test accounts (after seeding)
 

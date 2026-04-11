@@ -176,6 +176,16 @@ export default function CompetitionDetailPage() {
               </Link>
             )}
 
+            {/* View Results */}
+            {comp.status === 'COMPLETED' && (
+              <Link
+                to={`/competitions/${id}/live`}
+                className="mb-6 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-6 py-3 font-semibold text-white transition hover:bg-teal-500"
+              >
+                View Results
+              </Link>
+            )}
+
             {/* Competition info card */}
             <div className="rounded-lg border border-gray-200 p-5">
               <h3 className="mb-3 text-lg font-bold text-navy-900">Details</h3>

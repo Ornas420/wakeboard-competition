@@ -165,6 +165,11 @@ export default function LivePage() {
                 LIVE
               </span>
             )}
+            {competition.status === 'COMPLETED' && (
+              <span className="flex items-center gap-2 rounded-full bg-green-500/20 px-4 py-1.5 text-sm font-semibold text-green-400">
+                RESULTS
+              </span>
+            )}
           </div>
         </div>
       </div>
