@@ -170,15 +170,9 @@ router.patch('/:id', authenticate, authorize('ADMIN'), (req, res) => {
 
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) {
-      // judge_count locked once heats generated — skip silently
+      // judge_count validation (always editable, even with heats — admin may adjust mid-competition)
       if (field === 'judge_count') {
-        const hasHeats = db.prepare(
-          'SELECT 1 FROM stage s JOIN heat h ON h.stage_id = s.id WHERE s.competition_id = ? LIMIT 1'
-        ).get(req.params.id);
-        if (hasHeats) {
-          continue;
-        }
-        if (req.body[field] < 3 || req.body[field] > 5) {
+        if (req.body[field] < 1 || req.body[field] > 5) {
           return res.status(400).json({ error: 'Judge count must be between 1 and 5' });
         }
       }
@@ -293,6 +287,12 @@ router.post('/:id/staff', authenticate, authorize('ADMIN'), (req, res) => {
     'INSERT INTO competition_staff (id, competition_id, user_id, staff_role) VALUES (?, ?, ?, ?)'
   ).run(id, req.params.id, user_id, staff_role);
 
+  // Auto-sync judge_count with actual staff count
+  const staffCount = db.prepare(
+    'SELECT COUNT(*) as cnt FROM competition_staff WHERE competition_id = ?'
+  ).get(req.params.id).cnt;
+  db.prepare('UPDATE competition SET judge_count = ? WHERE id = ?').run(staffCount, req.params.id);
+
   res.status(201).json({ id, competition_id: req.params.id, user_id, staff_role });
 });
 
@@ -322,20 +322,15 @@ router.delete('/:id/staff/:userId', authenticate, authorize('ADMIN'), (req, res)
   ).get(req.params.id, req.params.userId);
   if (!staffRow) return res.status(404).json({ error: 'Staff member not found' });
 
-  // Block if any heat in competition is OPEN or higher
-  const activeHeats = db.prepare(`
-    SELECT h.id FROM heat h
-    JOIN stage s ON h.stage_id = s.id
-    WHERE s.competition_id = ? AND h.status IN ('OPEN', 'HEAD_REVIEW', 'APPROVED', 'CLOSED')
-  `).all(req.params.id);
-
-  if (activeHeats.length > 0) {
-    return res.status(409).json({ error: 'Cannot remove staff — active heats exist' });
-  }
-
   db.prepare(
     'DELETE FROM competition_staff WHERE competition_id = ? AND user_id = ?'
   ).run(req.params.id, req.params.userId);
+
+  // Auto-sync judge_count with actual staff count
+  const staffCount = db.prepare(
+    'SELECT COUNT(*) as cnt FROM competition_staff WHERE competition_id = ?'
+  ).get(req.params.id).cnt;
+  db.prepare('UPDATE competition SET judge_count = ? WHERE id = ?').run(Math.max(staffCount, 1), req.params.id);
 
   res.json({ message: 'Staff member removed' });
 });

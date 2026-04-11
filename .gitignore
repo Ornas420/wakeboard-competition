@@ -11,5 +11,8 @@ CLAUDE.md
 *.pdf
 *.png
 
+# Documentation (thesis, diagrams)
+docs/
+
 # Claude Code internal
 .claude/

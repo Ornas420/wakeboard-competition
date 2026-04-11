@@ -164,19 +164,19 @@ function ladderDistribute(athletes, heatCount) {
 }
 
 /**
- * STEPLADDER: weakest athletes in earliest heats, strongest in latest.
+ * STEPLADDER: even distribution (identical to ladder placement), weakest rides first.
+ * Per IWWF spec, stepladder distributes athletes evenly across heats (sequential),
+ * with running order reversed so lowest-seeded (weakest) athletes ride first.
  * @param {Array} athletes - sorted by rank (strongest first)
  * @param {number} heatCount
  * @returns {Array<Array>}
  */
 function stepladderDistribute(athletes, heatCount) {
-  // Reverse so weakest come first, then distribute
-  const reversed = [...athletes].reverse();
   const heats = Array.from({ length: heatCount }, () => []);
-  for (let i = 0; i < reversed.length; i++) {
-    heats[i % heatCount].push(reversed[i]);
+  for (let i = 0; i < athletes.length; i++) {
+    heats[i % heatCount].push(athletes[i]);
   }
-  // Within each heat, reverse so strongest rides last
+  // Reverse each heat so weakest (highest seed) rides first, strongest last
   return heats.map((heat) => heat.reverse());
 }
 

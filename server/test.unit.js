@@ -233,22 +233,25 @@ log('TS-U04: stepladderDistribute — Weakest First, Strongest Last');
 {
   const result = stepladderDistribute(athletes(6), 2);
   check('U04.01: 6/2 → 2 heats', result.length, 2);
-  // Stepladder: reverse input (weakest first), distribute, then reverse each heat
-  // Input: [1,2,3,4,5,6] → reversed: [6,5,4,3,2,1] → distribute: H1=[6,4,2], H2=[5,3,1] → reverse each: H1=[2,4,6], H2=[1,3,5]
-  check('U04.02: H1 strongest rides last', result[0][result[0].length - 1].seed, 6);
-  check('U04.03: H2 strongest rides last', result[1][result[1].length - 1].seed, 5);
+  // Stepladder per IWWF: even sequential distribution (like ladder), reversed so weakest first
+  // Input: [1,2,3,4,5,6] → distribute: H1=[1,3,5], H2=[2,4,6] → reverse each: H1=[5,3,1], H2=[6,4,2]
+  check('U04.02: H1 even distribution, weakest first', result[0][0].seed, 5);
+  check('U04.03: H1 strongest rides last', result[0][result[0].length - 1].seed, 1);
+  check('U04.04: H2 even distribution, weakest first', result[1][0].seed, 6);
+  check('U04.05: H2 strongest rides last', result[1][result[1].length - 1].seed, 2);
 }
 
 {
   const result = stepladderDistribute(athletes(3), 1);
-  check('U04.04: 3/1 → 1 heat with 3', result[0].length, 3);
-  // Reversed input [3,2,1] → single heat → reversed back [1,2,3]
-  check('U04.05: Weakest first, strongest last', result[0][2].seed, 3);
+  check('U04.06: 3/1 → 1 heat with 3', result[0].length, 3);
+  // Single heat: [1,2,3] → reversed: [3,2,1] — weakest (3) first, strongest (1) last
+  check('U04.07: Weakest first, strongest last', result[0][0].seed, 3);
+  check('U04.08: Strongest rides last', result[0][2].seed, 1);
 }
 
 {
   const result = stepladderDistribute([], 2);
-  check('U04.06: Empty → 2 empty heats', result[0].length + result[1].length, 0);
+  check('U04.09: Empty → 2 empty heats', result[0].length + result[1].length, 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

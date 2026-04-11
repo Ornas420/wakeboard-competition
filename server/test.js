@@ -1,13 +1,21 @@
 /**
  * Comprehensive Integration Tests — Wakeboard Competition System
- * ~120 test cases across 9 test scenarios
+ * ~140 test cases across 9 test scenarios
  *
- * Prerequisites: node src/db/seed.js && start server on port 3001
+ * Auto-seeds DB on start. Prerequisites: server running on port 3001
  * Usage: node test.js
  */
 
+import { execSync } from 'child_process';
+
 const BASE = 'http://localhost:3001/api';
 let passed = 0, failed = 0;
+
+function seedDatabase() {
+  console.log('  Seeding database...');
+  execSync('node src/db/seed.js', { stdio: 'ignore', cwd: import.meta.dirname });
+  console.log('  Database seeded.\n');
+}
 
 async function api(method, path, body, token) {
   const headers = { 'Content-Type': 'application/json' };
@@ -61,7 +69,10 @@ async function processHeat(heatId, openerToken, judgeTokens, hjToken) {
 async function main() {
   console.log('╔═══════════════════════════════════════════════════════╗');
   console.log('║  Wakeboard Competition System — Full Test Suite       ║');
-  console.log('╚═══════════════════════════════════════════════════════╝');
+  console.log('╚═══════════════════════════════════════════════════════╝\n');
+
+  // Auto-seed DB for clean state
+  seedDatabase();
 
   // Login seeded users
   const adminToken = await login('admin@wakeboard.lt');
@@ -71,6 +82,7 @@ async function main() {
   const j3Token = await login('judge3@wakeboard.lt');
   const athToken = await login('athlete1@wakeboard.lt');
   const judgeTokens = [j1Token, j2Token, j3Token];
+  const comp1Judges = [hjToken, j1Token]; // matches comp1 judge_count=2 (HJ + judge1)
 
   const { data: comps } = await api('GET', '/competitions');
   const compId = comps.competitions[0].id;
@@ -188,9 +200,11 @@ async function main() {
   const { status: ce2 } = await api('PATCH', `/competitions/${testCompId}`, { description: 'Desc', location: 'Loc' }, adminToken);
   check('TC-02.10: Edit description + location → 200', ce2, 200);
 
-  // judge_count locked after heats — use seeded comp which has heats
+  // judge_count editable after heats — use seeded comp which has heats
   const { status: ce3 } = await api('PATCH', `/competitions/${compId}`, { judge_count: 5 }, adminToken);
-  check('TC-02.11: judge_count locked after heats → 400', ce3, 400);
+  check('TC-02.11: judge_count editable after heats → 200', ce3, 200);
+  // Reset back to original judge_count=2 so scoring tests work correctly
+  await api('PATCH', `/competitions/${compId}`, { judge_count: 2 }, adminToken);
 
   // date locked when ACTIVE
   const { status: ce4 } = await api('PATCH', `/competitions/${compId}`, { start_date: '2026-12-01' }, adminToken);
@@ -475,7 +489,7 @@ async function main() {
   log('TS-07: Heat Lifecycle');
 
   // Score all remaining runs in heat1 to enable review
-  await scoreHeat(heat1.id, judgeTokens, hjToken);
+  await scoreHeat(heat1.id, comp1Judges, hjToken);
 
   log('  Scenario: Status Transitions');
   // Review
@@ -553,7 +567,7 @@ async function main() {
   log('  Scenario: QUAL → LCQ → FINAL (11 athletes)');
   // Heat1 is already CLOSED. Process Heat 2.
   const heat2 = qualHeats[1];
-  const { closeData: close2 } = await processHeat(heat2.id, adminToken, judgeTokens, hjToken);
+  const { closeData: close2 } = await processHeat(heat2.id, adminToken, comp1Judges, hjToken);
   check('TC-08.11: Stage complete flag', close2?.stage_complete, true);
 
   // Verify LCQ
@@ -577,7 +591,7 @@ async function main() {
   // Process LCQ heats
   for (const lh of lcqStage.heats) {
     if (lh.athletes.length === 0) continue;
-    await processHeat(lh.id, adminToken, judgeTokens, hjToken);
+    await processHeat(lh.id, adminToken, comp1Judges, hjToken);
   }
 
   // Verify FINAL
@@ -597,14 +611,14 @@ async function main() {
   assert('TC-08.08: FINAL heats auto-published', finalStage?.heats.every(h => h.published));
 
   // Process FINAL
-  const { results: finalResults } = await processHeat(finalStage.heats[0].id, adminToken, judgeTokens, hjToken);
+  const { results: finalResults } = await processHeat(finalStage.heats[0].id, adminToken, comp1Judges, hjToken);
   assert('TC-08.05b: FINAL results count', finalResults?.length === 6);
 
   // Women QUAL → FINAL (6 athletes)
   log('  Scenario: QUAL → FINAL (6 athletes)');
   const womenQualHeat = womenStages.find(s => s.stage_type === 'QUALIFICATION')?.heats[0];
   if (womenQualHeat) {
-    const { closeData: wClose } = await processHeat(womenQualHeat.id, adminToken, judgeTokens, hjToken);
+    const { closeData: wClose } = await processHeat(womenQualHeat.id, adminToken, comp1Judges, hjToken);
     check('TC-08.09: Women QUAL complete', wClose?.stage_complete, true);
 
     const { data: afterWomenQual } = await api('GET', `/heats/competition/${compId}`, null, adminToken);
@@ -649,7 +663,9 @@ async function main() {
   console.log('\n╔═══════════════════════════════════════════════════════╗');
   console.log(`║  Results: ${passed} passed, ${failed} failed${' '.repeat(Math.max(0, 36 - String(passed).length - String(failed).length))}║`);
   console.log('╚═══════════════════════════════════════════════════════╝');
+  // Re-seed to leave DB clean after tests
+  seedDatabase();
   process.exit(failed > 0 ? 1 : 0);
 }
 
-main().catch(err => { console.error('Test crashed:', err); process.exit(1); });
+main().catch(err => { console.error('Test crashed:', err); seedDatabase(); process.exit(1); });
