@@ -48,7 +48,7 @@ export default function HomePage() {
       <section className="relative -mt-16 flex min-h-[85vh] items-center overflow-hidden bg-navy-950">
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: "url('https://images.unsplash.com/photo-1621988935681-e8d4b8c9314e?w=1920&q=80')" }}
+          style={{ backgroundImage: "url('/hero-bg.jpg')" }}
         />
         <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-black/30" />
 
