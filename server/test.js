@@ -85,7 +85,7 @@ async function main() {
   const comp1Judges = [hjToken, j1Token]; // matches comp1 judge_count=2 (HJ + judge1)
 
   const { data: comps } = await api('GET', '/competitions');
-  const compId = comps.competitions[0].id;
+  const compId = comps.competitions.find(c => c.status === 'ACTIVE').id;
   const { data: compDetail } = await api('GET', `/competitions/${compId}`);
   const menDiv = compDetail.divisions.find(d => d.name === 'Open Men');
   const womenDiv = compDetail.divisions.find(d => d.name === 'Open Women');

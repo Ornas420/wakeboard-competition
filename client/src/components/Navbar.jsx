@@ -41,6 +41,12 @@ export default function Navbar() {
             Competitions
           </Link>
 
+          {user?.role === 'ATHLETE' && (
+            <Link to="/#my-competitions" className="text-sm font-medium uppercase tracking-wide text-white/70 hover:text-white">
+              My Competitions
+            </Link>
+          )}
+
           {(user?.role === 'JUDGE' || user?.role === 'HEAD_JUDGE') && (
             <Link to="/judge/competitions" className="text-sm font-medium uppercase tracking-wide text-white/70 hover:text-white">
               Judge
@@ -99,6 +105,9 @@ export default function Navbar() {
         <div className="border-t border-white/10 bg-navy-900 px-4 pb-4 md:hidden">
           <div className="flex flex-col gap-3 pt-3">
             <Link to="/browse" onClick={() => setMobileOpen(false)} className="text-sm text-white/80 hover:text-white">Competitions</Link>
+            {user?.role === 'ATHLETE' && (
+              <Link to="/#my-competitions" onClick={() => setMobileOpen(false)} className="text-sm text-white/80 hover:text-white">My Competitions</Link>
+            )}
             {(user?.role === 'JUDGE' || user?.role === 'HEAD_JUDGE') && (
               <Link to="/judge/competitions" onClick={() => setMobileOpen(false)} className="text-sm text-white/80 hover:text-white">Judge</Link>
             )}

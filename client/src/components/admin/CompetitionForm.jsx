@@ -46,6 +46,12 @@ export default function CompetitionForm({ competition = null, onSubmit, onCancel
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    if (form.end_date && new Date(form.end_date) < new Date(form.start_date)) {
+      setError('End date cannot be before start date');
+      return;
+    }
+
     setSubmitting(true);
     try {
       await onSubmit(form);

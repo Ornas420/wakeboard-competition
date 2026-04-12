@@ -30,7 +30,7 @@ export default function StaffSection({ competitionId }) {
   const fetchJudges = () => {
     api.get('/auth/judges')
       .then(data => setJudges(data))
-      .catch(() => {});
+      .catch(err => setError(err.message));
   };
 
   useEffect(() => {

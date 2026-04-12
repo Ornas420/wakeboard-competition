@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
+import { useAuth } from '../context/AuthContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import StatusBadge from '../components/StatusBadge';
 import { formatDateRange, GRADIENTS } from '../utils/format';
 
 export default function HomePage() {
+  const { user } = useAuth();
   const [competitions, setCompetitions] = useState([]);
+  const [myComps, setMyComps] = useState([]);
   const [loading, setLoading] = useState(true);
   const sliderRef = useRef(null);
 
@@ -16,10 +20,19 @@ export default function HomePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (user?.role === 'ATHLETE') {
+      api.get('/registrations/my')
+        .then((data) => setMyComps(data.competitions || []))
+        .catch(() => {});
+    } else {
+      setMyComps([]);
+    }
+  }, [user]);
+
   const activeComps = competitions.filter(c => c.status === 'ACTIVE');
   const upcomingComps = competitions.filter(c => c.status === 'DRAFT');
   const completedComps = competitions.filter(c => c.status === 'COMPLETED');
-  const liveAndUpcoming = [...activeComps, ...upcomingComps];
 
   const scrollSlider = (dir) => {
     if (!sliderRef.current) return;
@@ -70,6 +83,39 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ═══ MY COMPETITIONS (Athletes only) ═══ */}
+      {myComps.length > 0 && (
+        <section id="my-competitions" className="bg-navy-950 py-12">
+          <div className="container mx-auto px-4">
+            <div className="mb-6">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-widest text-accent">
+                My Competitions
+              </span>
+              <h2 className="text-2xl font-bold text-white">Your Registered Events</h2>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {myComps.map(comp => (
+                <Link key={comp.id} to={`/competitions/${comp.id}`}
+                  className="group flex items-center gap-4 rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-accent/30 hover:bg-white/10">
+                  <div className="flex-1">
+                    <div className="mb-1 flex items-center gap-2">
+                      <h3 className="font-semibold text-white group-hover:text-accent transition">{comp.name}</h3>
+                      <StatusBadge status={comp.status} />
+                    </div>
+                    <p className="text-xs text-white/40">
+                      {formatDateRange(comp.start_date, comp.end_date)}
+                      {comp.location && ` · ${comp.location}`}
+                    </p>
+                    <p className="mt-1.5 text-xs text-accent/70">{comp.registered_divisions}</p>
+                  </div>
+                  <span className="text-sm text-white/30 group-hover:text-accent transition">→</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ═══ CURRENTLY ACTIVE — Horizontal Scroll Slider ═══ */}
       {activeComps.length > 0 && (
@@ -164,24 +210,24 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* ═══ LIVE & UPCOMING ═══ */}
-      <section id="competitions" className="bg-gray-50 py-20">
-        <div className="container mx-auto px-4">
-          <div className="mb-10 flex items-end justify-between">
-            <div>
-              <h2 className="text-3xl font-bold text-navy-900">Live & Upcoming</h2>
-              <p className="mt-1 text-gray-500">Don't miss the action</p>
+      {/* ═══ UPCOMING ═══ */}
+      {upcomingComps.length > 0 && (
+        <section id="competitions" className="bg-gray-50 py-20">
+          <div className="container mx-auto px-4">
+            <div className="mb-10 flex items-end justify-between">
+              <div>
+                <span className="mb-2 block text-xs font-semibold uppercase tracking-widest text-accent">
+                  Coming Soon
+                </span>
+                <h2 className="text-3xl font-bold text-navy-900">Upcoming Competitions</h2>
+              </div>
+              <Link to="/browse" className="text-sm font-medium uppercase tracking-wide text-accent hover:text-accent-dark">
+                View All →
+              </Link>
             </div>
-            <Link to="/browse" className="text-sm font-medium uppercase tracking-wide text-accent hover:text-accent-dark">
-              View All →
-            </Link>
-          </div>
 
-          {liveAndUpcoming.length === 0 ? (
-            <p className="py-12 text-center text-gray-400">No upcoming competitions at this time.</p>
-          ) : (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-              {liveAndUpcoming.slice(0, 4).map((comp, i) => (
+              {upcomingComps.slice(0, 4).map((comp, i) => (
                 <Link key={comp.id} to={`/competitions/${comp.id}`} className="group relative h-64 overflow-hidden rounded-xl">
                   {comp.image_url ? (
                     <div className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover:scale-105" style={{ backgroundImage: `url('${comp.image_url}')` }} />
@@ -190,16 +236,9 @@ export default function HomePage() {
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                   <div className="absolute bottom-0 left-0 right-0 p-5">
-                    {comp.status === 'ACTIVE' ? (
-                      <div className="mb-2 flex items-center gap-1.5">
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-                        <span className="text-xs font-semibold uppercase tracking-wide text-red-400">Live</span>
-                      </div>
-                    ) : (
-                      <p className="mb-2 text-xs text-white/50">
-                        {formatDateRange(comp.start_date, comp.end_date)}
-                      </p>
-                    )}
+                    <p className="mb-2 text-xs text-white/50">
+                      {formatDateRange(comp.start_date, comp.end_date)}
+                    </p>
                     <h3 className="text-lg font-bold text-white">{comp.name}</h3>
                     {comp.divisions && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -212,9 +251,9 @@ export default function HomePage() {
                 </Link>
               ))}
             </div>
-          )}
-        </div>
-      </section>
+          </div>
+        </section>
+      )}
 
       {/* ═══ RESULTS ═══ */}
       {completedComps.length > 0 && (

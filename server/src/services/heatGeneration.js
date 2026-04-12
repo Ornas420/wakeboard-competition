@@ -19,11 +19,11 @@ function getFormatConfig(athleteCount) {
     ];
   }
 
-  // 7-10: Qual(2) + LCQ(1, ladder) + Final(1)
+  // 7-10: Qual(2) + LCQ(1, step-ladder) + Final(1)
   if (athleteCount <= 10) {
     return [
       { type: 'QUALIFICATION', heatCount: 2, qualifyTotal: 4, runsPerAthlete: 2, distribution: 'SNAKE', reversed: false },
-      { type: 'LCQ', heatCount: 1, qualifyTotal: 2, runsPerAthlete: 1, distribution: 'LADDER', reversed: false },
+      { type: 'LCQ', heatCount: 1, qualifyTotal: 2, runsPerAthlete: 1, distribution: 'STEPLADDER', reversed: false },
       { type: 'FINAL', heatCount: 1, qualifyTotal: null, runsPerAthlete: 2, distribution: 'LADDER', reversed: true },
     ];
   }
@@ -167,6 +167,13 @@ function ladderDistribute(athletes, heatCount) {
  * STEPLADDER: even distribution (identical to ladder placement), weakest rides first.
  * Per IWWF spec, stepladder distributes athletes evenly across heats (sequential),
  * with running order reversed so lowest-seeded (weakest) athletes ride first.
+ *
+ * Note: IWWF spec also defines a rotation pattern within rank groups for the running
+ * order (offset = (groupIndex + 1) % numPrevHeats). This is not implemented because
+ * advancer data does not consistently carry rank_in_heat/heat_number through all
+ * advancement paths (e.g. QUAL→LCQ and LCQ completion reconstruct athlete objects).
+ * The current even distribution + reverse order is correct for placement and basic
+ * running order per IWWF.
  * @param {Array} athletes - sorted by rank (strongest first)
  * @param {number} heatCount
  * @returns {Array<Array>}

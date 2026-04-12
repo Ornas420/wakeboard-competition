@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import db, { initDb } from './schema.js';
 import { generateHeatsForDivision } from '../services/heatGeneration.js';
+import { submitScore, submitForReview, approveHeat, closeHeat } from '../services/scoringEngine.js';
 
 async function seed() {
   // Drop all tables and recreate
@@ -21,7 +22,6 @@ async function seed() {
     DROP TABLE IF EXISTS user;
   `);
 
-  // Also drop indexes (they'll be recreated by initDb)
   db.exec(`
     DROP INDEX IF EXISTS idx_division_competition;
     DROP INDEX IF EXISTS idx_registration_division;
@@ -37,7 +37,9 @@ async function seed() {
 
   const hash = await bcrypt.hash('password123', 10);
 
-  // --- Users ---
+  // ═══════════════════════════════════════════════════════════════════════
+  // USERS
+  // ═══════════════════════════════════════════════════════════════════════
   const adminId = uuidv4();
   const headJudgeId = uuidv4();
   const judge1Id = uuidv4();
@@ -54,12 +56,15 @@ async function seed() {
   insertUser.run(judge2Id, 'judge2@wakeboard.lt', hash, 'Andrius Baltas', 'JUDGE');
   insertUser.run(judge3Id, 'judge3@wakeboard.lt', hash, 'Dainius Giedrius', 'JUDGE');
 
-  // 11 Men athletes
+  // 20 Men athletes
   const menNames = [
     'Jonas Jonaitis', 'Petras Petraitis', 'Lukas Lukauskas',
     'Matas Matauskas', 'Karolis Karolaitis', 'Giedrius Giedraitis',
     'Tautvydas Tautvilas', 'Rokas Rokaitis', 'Domas Domaitis',
-    'Paulius Paulauskas', 'Mantas Mantauskas'
+    'Paulius Paulauskas', 'Mantas Mantauskas',
+    'Dovydas Dovydaitis', 'Eimantas Eimantauskas', 'Faustas Faustauskas',
+    'Henrikas Henrikauskas', 'Ignas Ignauskas', 'Justinas Justinauskas',
+    'Kipras Kiprauskas', 'Laurynas Laurynauskas', 'Nerijus Nerijauskas'
   ];
   const menIds = menNames.map((name, i) => {
     const id = uuidv4();
@@ -67,10 +72,11 @@ async function seed() {
     return id;
   });
 
-  // 6 Women athletes
+  // 8 Women athletes
   const womenNames = [
     'Gabija Gabijaitė', 'Austėja Austėjaitė', 'Ieva Ievaitė',
-    'Emilija Emilijaitė', 'Kotryna Kotrynaitė', 'Ugnė Ugnaitė'
+    'Emilija Emilijaitė', 'Kotryna Kotrynaitė', 'Ugnė Ugnaitė',
+    'Rūta Rūtaitė', 'Simona Simonaitė'
   ];
   const womenIds = womenNames.map((name, i) => {
     const id = uuidv4();
@@ -78,18 +84,181 @@ async function seed() {
     return id;
   });
 
-  // --- Competition ---
-  const compId = uuidv4();
-  db.prepare(`
+  const insertComp = db.prepare(`
     INSERT INTO competition (id, name, start_date, end_date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, status, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    compId,
+  `);
+  const insertDiv = db.prepare(
+    'INSERT INTO division (id, competition_id, name, display_order) VALUES (?, ?, ?, ?)'
+  );
+  const insertStaff = db.prepare(
+    'INSERT INTO competition_staff (id, competition_id, user_id, staff_role) VALUES (?, ?, ?, ?)'
+  );
+  const insertReg = db.prepare(
+    'INSERT INTO registration (id, competition_id, division_id, athlete_id, status, seed) VALUES (?, ?, ?, ?, ?, ?)'
+  );
+
+  // Helper: generate heats, publish, set schedule
+  function setupCompetition(compId, divIds) {
+    const results = {};
+    for (const divId of divIds) {
+      try {
+        results[divId] = generateHeatsForDivision(divId);
+      } catch (err) {
+        console.error(`  Heat generation failed for ${divId}:`, err.message);
+      }
+    }
+
+    db.prepare(`
+      UPDATE heat SET published = 1
+      WHERE id IN (SELECT h.id FROM heat h JOIN stage s ON h.stage_id = s.id WHERE s.competition_id = ?)
+    `).run(compId);
+
+    const allStages = db.prepare(`
+      SELECT s.id FROM stage s
+      JOIN division d ON s.division_id = d.id
+      WHERE s.competition_id = ?
+      ORDER BY s.stage_order, d.display_order
+    `).all(compId);
+
+    let order = 1;
+    for (const stage of allStages) {
+      const heats = db.prepare('SELECT id FROM heat WHERE stage_id = ? ORDER BY heat_number').all(stage.id);
+      for (const heat of heats) {
+        db.prepare('UPDATE heat SET schedule_order = ? WHERE id = ?').run(order++, heat.id);
+      }
+    }
+
+    return results;
+  }
+
+  // Helper: score and process all heats for a competition (for COMPLETED comps)
+  function scoreEntireCompetition(compId, judgeIds) {
+    const randomScore = () => Math.round((Math.random() * 40 + 55) * 2) / 2; // 55-95 range
+
+    // Process stages in order — each stage must complete before the next is populated
+    const stages = db.prepare(`
+      SELECT s.id, s.stage_type, s.status FROM stage s
+      JOIN division d ON s.division_id = d.id
+      WHERE s.competition_id = ?
+      ORDER BY d.display_order, s.stage_order
+    `).all(compId);
+
+    // Group stages by division for sequential processing
+    const divStages = {};
+    const divs = db.prepare(`
+      SELECT id FROM division WHERE competition_id = ? ORDER BY display_order
+    `).all(compId);
+
+    for (const div of divs) {
+      divStages[div.id] = db.prepare(`
+        SELECT s.id, s.stage_type, s.status FROM stage s
+        WHERE s.division_id = ? ORDER BY s.stage_order
+      `).all(div.id);
+    }
+
+    for (const divId of Object.keys(divStages)) {
+      // Activate first stage of each division
+      if (divStages[divId].length > 0) {
+        db.prepare("UPDATE stage SET status = 'ACTIVE' WHERE id = ?").run(divStages[divId][0].id);
+      }
+
+      for (const stage of divStages[divId]) {
+        // Re-read stage status (may have been activated by previous stage completion or above)
+        const currentStage = db.prepare('SELECT status FROM stage WHERE id = ?').get(stage.id);
+        if (currentStage.status !== 'ACTIVE') continue;
+
+        const heats = db.prepare(
+          'SELECT id, heat_number FROM heat WHERE stage_id = ? ORDER BY heat_number'
+        ).all(stage.id);
+
+        for (const heat of heats) {
+          // Check if heat has athletes
+          const athletes = db.prepare(
+            'SELECT athlete_id FROM heat_athlete WHERE heat_id = ?'
+          ).all(heat.id);
+          if (athletes.length === 0) continue;
+
+          // Open heat
+          db.prepare("UPDATE heat SET status = 'OPEN' WHERE id = ?").run(heat.id);
+
+          // Score all runs
+          const runs = db.prepare(
+            'SELECT id, athlete_id, run_number FROM athlete_run WHERE heat_id = ? ORDER BY athlete_id, run_number'
+          ).all(heat.id);
+
+          for (const run of runs) {
+            for (const judgeId of judgeIds) {
+              submitScore(run.id, judgeId, randomScore(), null);
+            }
+          }
+
+          // Review → Approve → Close
+          submitForReview(heat.id, judgeIds[0]);
+          approveHeat(heat.id, judgeIds[0], null);
+          closeHeat(heat.id, judgeIds[0], null);
+        }
+      }
+    }
+
+    // Set competition to COMPLETED
+    db.prepare("UPDATE competition SET status = 'COMPLETED' WHERE id = ?").run(compId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // COMPETITION 1: Baltic Wakeboard Championship — COMPLETED with scores
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log('--- Creating Competition 1: Baltic Wakeboard Championship (COMPLETED) ---');
+
+  const comp1Id = uuidv4();
+  insertComp.run(
+    comp1Id,
+    'Baltic Wakeboard Championship 2026',
+    '2026-06-05',
+    '2026-06-07',
+    'Klaipėda Sea Park',
+    'The premier Baltic wakeboard championship bringing together top riders from Lithuania, Latvia, and Estonia. Three days of intense competition across two divisions with IWWF-compliant judging and live scoring.',
+    'DAY 1 — June 5\n09:00 — Opening Ceremony\n09:30 — Men Qualification\n11:00 — Women Qualification\n12:00 — Lunch Break\n13:00 — Men Final\n14:30 — Women Final\n16:00 — Award Ceremony',
+    null,
+    'https://images.unsplash.com/photo-1530870110042-98b2cb110834?w=1200&q=80',
+    '€3,000',
+    'Regional',
+    2,
+    'ACTIVE', // will be set to COMPLETED after scoring
+    adminId
+  );
+
+  const c1DivMen = uuidv4();
+  const c1DivWomen = uuidv4();
+  insertDiv.run(c1DivMen, comp1Id, 'Open Men', 1);
+  insertDiv.run(c1DivWomen, comp1Id, 'Open Women', 2);
+
+  insertStaff.run(uuidv4(), comp1Id, headJudgeId, 'HEAD_JUDGE');
+  insertStaff.run(uuidv4(), comp1Id, judge1Id, 'JUDGE');
+
+  // 6 men + 6 women → simple format: QUAL(1) + FINAL(1)
+  menIds.slice(0, 6).forEach((id, i) => insertReg.run(uuidv4(), comp1Id, c1DivMen, id, 'CONFIRMED', i + 1));
+  womenIds.slice(0, 6).forEach((id, i) => insertReg.run(uuidv4(), comp1Id, c1DivWomen, id, 'CONFIRMED', i + 1));
+
+  setupCompetition(comp1Id, [c1DivMen, c1DivWomen]);
+
+  // Score all heats and complete
+  scoreEntireCompetition(comp1Id, [headJudgeId, judge1Id]);
+  console.log('  Scored and completed all heats.');
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // COMPETITION 2: Lithuanian Wakeboard Open — ACTIVE
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log('--- Creating Competition 2: Lithuanian Wakeboard Open (ACTIVE) ---');
+
+  const comp2Id = uuidv4();
+  insertComp.run(
+    comp2Id,
     'Lithuanian Wakeboard Open 2026',
     '2026-07-15',
     '2026-07-17',
     'Vilnius Wake Park',
-    'Prepare for the most prestigious wakeboarding event in the Baltics. The Lithuanian Wakeboard Open brings together athletes from across the region to showcase their talent and compete for a three-day showcase of extreme water sports.\n\nHosted at the premier Vilnius Wake Park, this competition features IWWF-compliant format with qualification rounds, last chance qualifiers, and an exciting final. Athletes will compete across multiple divisions with two runs per heat scored by a panel of certified judges.',
+    'Prepare for the most prestigious wakeboarding event in the Baltics. The Lithuanian Wakeboard Open brings together athletes from across the region to showcase their talent and compete for a three-day showcase of extreme water sports.\n\nHosted at the premier Vilnius Wake Park, this competition features IWWF-compliant format with qualification rounds, last chance qualifiers, and an exciting final.',
     'DAY 1 — July 15\n09:00 — Opening Ceremony\n09:30 — Men Qualification Heat 1\n10:15 — Men Qualification Heat 2\n11:00 — Women Qualification Heat 1\n12:00 — Lunch Break\n13:00 — Men LCQ Heat 1\n13:45 — Men LCQ Heat 2\n14:30 — Women Final\n15:30 — Men Final\n16:30 — Award Ceremony',
     'https://www.youtube.com/embed/dQw4w9WgXcQ',
     'https://images.unsplash.com/photo-1564415051543-cb73a0109ddc?w=1200&q=80',
@@ -100,247 +269,100 @@ async function seed() {
     adminId
   );
 
-  // --- Divisions ---
-  const divMenId = uuidv4();
-  const divWomenId = uuidv4();
-  const insertDiv = db.prepare(
-    'INSERT INTO division (id, competition_id, name, display_order) VALUES (?, ?, ?, ?)'
+  const c2DivMen = uuidv4();
+  const c2DivWomen = uuidv4();
+  insertDiv.run(c2DivMen, comp2Id, 'Open Men', 1);
+  insertDiv.run(c2DivWomen, comp2Id, 'Open Women', 2);
+
+  insertStaff.run(uuidv4(), comp2Id, headJudgeId, 'HEAD_JUDGE');
+  insertStaff.run(uuidv4(), comp2Id, judge1Id, 'JUDGE');
+
+  menIds.slice(0, 11).forEach((id, i) => insertReg.run(uuidv4(), comp2Id, c2DivMen, id, 'CONFIRMED', i + 1));
+  womenIds.slice(0, 6).forEach((id, i) => insertReg.run(uuidv4(), comp2Id, c2DivWomen, id, 'CONFIRMED', i + 1));
+
+  const c2Results = setupCompetition(comp2Id, [c2DivMen, c2DivWomen]);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // COMPETITION 3: Kaunas Wakeboard Cup — DRAFT (upcoming)
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log('--- Creating Competition 3: Kaunas Wakeboard Cup (DRAFT) ---');
+
+  const comp3Id = uuidv4();
+  insertComp.run(
+    comp3Id,
+    'Kaunas Wakeboard Cup 2026',
+    '2026-08-20',
+    '2026-08-21',
+    'Kaunas Reservoir',
+    'The biggest wakeboard competition in the Baltic region returns for its 5th edition! Featuring athletes across two divisions, the Kaunas Wakeboard Cup brings together the best riders from Lithuania, Latvia, Estonia, and Poland.\n\nWith a €10,000 prize pool and international-level judging, this is the must-attend event of the summer.',
+    'DAY 1 — August 20\n08:30 — Registration & Check-in\n09:00 — Men Qualification Heats\n11:00 — Women Qualification Heats\n12:00 — Lunch Break\n\nDAY 2 — August 21\n09:00 — Men LCQ & Semi-finals\n12:00 — Women Final\n14:00 — Men Final\n15:30 — Award Ceremony',
+    null,
+    'https://images.unsplash.com/photo-1621988935681-e8d4b8c9314e?w=1200&q=80',
+    '€10,000',
+    'International',
+    2,
+    'DRAFT',
+    adminId
   );
-  insertDiv.run(divMenId, compId, 'Open Men', 1);
-  insertDiv.run(divWomenId, compId, 'Open Women', 2);
 
-  // --- Staff ---
-  const insertStaff = db.prepare(
-    'INSERT INTO competition_staff (id, competition_id, user_id, staff_role) VALUES (?, ?, ?, ?)'
+  const c3DivMen = uuidv4();
+  const c3DivWomen = uuidv4();
+  insertDiv.run(c3DivMen, comp3Id, 'Open Men', 1);
+  insertDiv.run(c3DivWomen, comp3Id, 'Open Women', 2);
+
+  // Register athletes but no heats generated (DRAFT)
+  menIds.forEach((id, i) => insertReg.run(uuidv4(), comp3Id, c3DivMen, id, 'CONFIRMED', i + 1));
+  womenIds.forEach((id, i) => insertReg.run(uuidv4(), comp3Id, c3DivWomen, id, 'CONFIRMED', i + 1));
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // COMPETITION 4: Vilnius Wake Festival — DRAFT (upcoming)
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log('--- Creating Competition 4: Vilnius Wake Festival (DRAFT) ---');
+
+  const comp4Id = uuidv4();
+  insertComp.run(
+    comp4Id,
+    'Vilnius Wake Festival 2026',
+    '2026-09-10',
+    '2026-09-12',
+    'Vilnius Wake Park',
+    'A fun and inclusive wakeboard festival for riders of all levels! The Vilnius Wake Festival combines competitive wakeboarding with music, food, and entertainment. Whether you are a seasoned pro or trying wakeboarding for the first time, this event has something for everyone.',
+    'DAY 1 — September 10\n10:00 — Registration & Open Practice\n14:00 — Men Qualification\n\nDAY 2 — September 11\n10:00 — Women Qualification\n14:00 — Men & Women Finals\n\nDAY 3 — September 12\n10:00 — Awards & Best Trick Contest\n14:00 — Festival & Afterparty',
+    null,
+    'https://images.unsplash.com/photo-1504701954957-2010ec3bcec1?w=1200&q=80',
+    '€2,000',
+    'National',
+    2,
+    'DRAFT',
+    adminId
   );
-  insertStaff.run(uuidv4(), compId, headJudgeId, 'HEAD_JUDGE');
-  insertStaff.run(uuidv4(), compId, judge1Id, 'JUDGE');
 
-  // --- Registrations ---
-  const insertReg = db.prepare(
-    'INSERT INTO registration (id, competition_id, division_id, athlete_id, status, seed) VALUES (?, ?, ?, ?, ?, ?)'
-  );
+  const c4DivMen = uuidv4();
+  const c4DivWomen = uuidv4();
+  insertDiv.run(c4DivMen, comp4Id, 'Open Men', 1);
+  insertDiv.run(c4DivWomen, comp4Id, 'Open Women', 2);
 
-  // 11 Men athletes with seeds
-  menIds.forEach((athleteId, i) => {
-    insertReg.run(uuidv4(), compId, divMenId, athleteId, 'CONFIRMED', i + 1);
-  });
+  menIds.slice(0, 8).forEach((id, i) => insertReg.run(uuidv4(), comp4Id, c4DivMen, id, 'CONFIRMED', i + 1));
+  womenIds.slice(0, 4).forEach((id, i) => insertReg.run(uuidv4(), comp4Id, c4DivWomen, id, 'CONFIRMED', i + 1));
 
-  // 6 Women athletes with seeds
-  womenIds.forEach((athleteId, i) => {
-    insertReg.run(uuidv4(), compId, divWomenId, athleteId, 'CONFIRMED', i + 1);
-  });
-
-  // --- Generate heats for both divisions ---
-  let menHeats, womenHeats;
-  try {
-    menHeats = generateHeatsForDivision(divMenId);
-    console.log(`  Men heat generation: ${menHeats.format}`);
-    console.log(`    ${menHeats.stages_created} stages, ${menHeats.heats_created} heats created`);
-  } catch (err) {
-    console.error('  Men heat generation failed:', err.message);
-  }
-
-  try {
-    womenHeats = generateHeatsForDivision(divWomenId);
-    console.log(`  Women heat generation: ${womenHeats.format}`);
-    console.log(`    ${womenHeats.stages_created} stages, ${womenHeats.heats_created} heats created`);
-  } catch (err) {
-    console.error('  Women heat generation failed:', err.message);
-  }
-
-  // --- Publish all heats ---
-  db.prepare(`
-    UPDATE heat SET published = 1
-    WHERE id IN (SELECT h.id FROM heat h JOIN stage s ON h.stage_id = s.id WHERE s.competition_id = ?)
-  `).run(compId);
-
-  // --- Set schedule order (interleaved: Men Qual, Women Qual, Men LCQ, Women LCQ, etc.) ---
-  const allStages = db.prepare(`
-    SELECT s.id, s.stage_type, s.stage_order, s.division_id, d.name as division_name
-    FROM stage s
-    JOIN division d ON s.division_id = d.id
-    WHERE s.competition_id = ?
-    ORDER BY s.stage_order, d.display_order
-  `).all(compId);
-
-  let scheduleOrder = 1;
-  for (const stage of allStages) {
-    const heats = db.prepare(
-      'SELECT id FROM heat WHERE stage_id = ? ORDER BY heat_number'
-    ).all(stage.id);
-    for (const heat of heats) {
-      db.prepare('UPDATE heat SET schedule_order = ? WHERE id = ?').run(scheduleOrder, heat.id);
-      scheduleOrder++;
-    }
-  }
-
-  // --- Summary ---
-  const totalHeats = db.prepare(`
-    SELECT COUNT(*) as cnt FROM heat h JOIN stage s ON h.stage_id = s.id WHERE s.competition_id = ?
-  `).get(compId).cnt;
-
-  const scheduleList = db.prepare(`
-    SELECT h.schedule_order, d.name as div, s.stage_type, h.heat_number
-    FROM heat h
-    JOIN stage s ON h.stage_id = s.id
-    JOIN division d ON s.division_id = d.id
-    WHERE s.competition_id = ?
-    ORDER BY h.schedule_order
-  `).all(compId);
-
+  // ═══════════════════════════════════════════════════════════════════════
+  // SUMMARY
+  // ═══════════════════════════════════════════════════════════════════════
   console.log('');
   console.log('Database seeded successfully');
   console.log('');
   console.log('=== Test Accounts ===');
   console.log('  Admin:       admin@wakeboard.lt / password123');
   console.log('  Head Judge:  headjudge@wakeboard.lt / password123');
-  console.log('  Judges:      judge1@wakeboard.lt, judge2@wakeboard.lt, judge3@wakeboard.lt / password123');
-  console.log(`  Men athletes:   athlete1@wakeboard.lt ... athlete11@wakeboard.lt / password123`);
-  console.log(`  Women athletes: wathlete1@wakeboard.lt ... wathlete6@wakeboard.lt / password123`);
+  console.log('  Judges:      judge1-3@wakeboard.lt / password123');
+  console.log('  Men athletes:   athlete1-20@wakeboard.lt / password123');
+  console.log('  Women athletes: wathlete1-8@wakeboard.lt / password123');
   console.log('');
-  console.log('=== Competition ===');
-  console.log(`  ${compId} — ACTIVE`);
-  console.log(`  Open Men: 11 athletes → ${menHeats?.format || 'N/A'}`);
-  console.log(`  Open Women: 6 athletes → ${womenHeats?.format || 'N/A'}`);
-  console.log(`  Total heats: ${totalHeats} (all published)`);
-  console.log('');
-  console.log('=== Schedule Order ===');
-  for (const h of scheduleList) {
-    console.log(`  ${h.schedule_order}. ${h.div} — ${h.stage_type} Heat ${h.heat_number}`);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // COMPETITION 2: Kaunas Wakeboard Cup — 20 Men + 8 Women
-  // ═══════════════════════════════════════════════════════════════════════
-  console.log('');
-  console.log('--- Creating Competition 2: Kaunas Wakeboard Cup ---');
-
-  // Additional men athletes (9 more, total 20 with the 11 existing)
-  const extraMenNames = [
-    'Dovydas Dovydaitis', 'Eimantas Eimantauskas', 'Faustas Faustauskas',
-    'Henrikas Henrikauskas', 'Ignas Ignauskas', 'Justinas Justinauskas',
-    'Kipras Kiprauskas', 'Laurynas Laurynauskas', 'Nerijus Nerijauskas'
-  ];
-  const extraMenIds = extraMenNames.map((name, i) => {
-    const id = uuidv4();
-    insertUser.run(id, `athlete${12 + i}@wakeboard.lt`, hash, name, 'ATHLETE');
-    return id;
-  });
-  const allMenIds = [...menIds, ...extraMenIds]; // 20 total
-
-  // Additional women athletes (2 more, total 8 with the 6 existing)
-  const extraWomenNames = ['Rūta Rūtaitė', 'Simona Simonaitė'];
-  const extraWomenIds = extraWomenNames.map((name, i) => {
-    const id = uuidv4();
-    insertUser.run(id, `wathlete${7 + i}@wakeboard.lt`, hash, name, 'ATHLETE');
-    return id;
-  });
-  const allWomenIds = [...womenIds, ...extraWomenIds]; // 8 total
-
-  const comp2Id = uuidv4();
-  db.prepare(`
-    INSERT INTO competition (id, name, start_date, end_date, location, description, timetable, video_url, image_url, prize_pool, level, judge_count, status, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    comp2Id,
-    'Kaunas Wakeboard Cup 2026',
-    '2026-08-20',
-    '2026-08-21',
-    'Kaunas Reservoir',
-    'The biggest wakeboard competition in the Baltic region returns for its 5th edition! Featuring 28 athletes across two divisions, the Kaunas Wakeboard Cup brings together the best riders from Lithuania, Latvia, Estonia, and Poland.\n\nWith a €10,000 prize pool and international-level judging, this is the must-attend event of the summer. The competition follows full IWWF format with qualification rounds, quarter-finals, semi-finals, and a thrilling final.',
-    'DAY 1 — August 20\n08:30 — Registration & Check-in\n09:00 — Men Qualification Heat 1\n09:30 — Men Qualification Heat 2\n10:00 — Men Qualification Heat 3\n10:30 — Men Qualification Heat 4\n11:00 — Women Qualification Heat 1\n11:30 — Women Qualification Heat 2\n12:00 — Lunch Break\n\nDAY 2 — August 21\n09:00 — Men LCQ Heat 1\n09:30 — Men LCQ Heat 2\n10:00 — Women LCQ Heat 1\n10:45 — Men Semi-final Heat 1\n11:30 — Men Semi-final Heat 2\n12:15 — Lunch Break\n13:00 — Women Final\n14:00 — Men Final\n15:30 — Award Ceremony & Afterparty',
-    null,
-    'https://images.unsplash.com/photo-1621988935681-e8d4b8c9314e?w=1200&q=80',
-    '€10,000',
-    'International',
-    2,
-    'ACTIVE',
-    adminId
-  );
-
-  const div2MenId = uuidv4();
-  const div2WomenId = uuidv4();
-  insertDiv.run(div2MenId, comp2Id, 'Open Men', 1);
-  insertDiv.run(div2WomenId, comp2Id, 'Open Women', 2);
-
-  // Same staff
-  insertStaff.run(uuidv4(), comp2Id, headJudgeId, 'HEAD_JUDGE');
-  insertStaff.run(uuidv4(), comp2Id, judge1Id, 'JUDGE');
-
-  // Register 20 men
-  allMenIds.forEach((athleteId, i) => {
-    insertReg.run(uuidv4(), comp2Id, div2MenId, athleteId, 'CONFIRMED', i + 1);
-  });
-
-  // Register 8 women
-  allWomenIds.forEach((athleteId, i) => {
-    insertReg.run(uuidv4(), comp2Id, div2WomenId, athleteId, 'CONFIRMED', i + 1);
-  });
-
-  // Generate heats
-  let men2Heats, women2Heats;
-  try {
-    men2Heats = generateHeatsForDivision(div2MenId);
-    console.log(`  Men heat generation: ${men2Heats.format}`);
-    console.log(`    ${men2Heats.stages_created} stages, ${men2Heats.heats_created} heats created`);
-  } catch (err) {
-    console.error('  Men heat generation failed:', err.message);
-  }
-
-  try {
-    women2Heats = generateHeatsForDivision(div2WomenId);
-    console.log(`  Women heat generation: ${women2Heats.format}`);
-    console.log(`    ${women2Heats.stages_created} stages, ${women2Heats.heats_created} heats created`);
-  } catch (err) {
-    console.error('  Women heat generation failed:', err.message);
-  }
-
-  // Publish all heats
-  db.prepare(`
-    UPDATE heat SET published = 1
-    WHERE id IN (SELECT h.id FROM heat h JOIN stage s ON h.stage_id = s.id WHERE s.competition_id = ?)
-  `).run(comp2Id);
-
-  // Set schedule order
-  const allStages2 = db.prepare(`
-    SELECT s.id, s.stage_type, s.stage_order, s.division_id, d.name as division_name
-    FROM stage s
-    JOIN division d ON s.division_id = d.id
-    WHERE s.competition_id = ?
-    ORDER BY s.stage_order, d.display_order
-  `).all(comp2Id);
-
-  let scheduleOrder2 = 1;
-  for (const stage of allStages2) {
-    const heats = db.prepare('SELECT id FROM heat WHERE stage_id = ? ORDER BY heat_number').all(stage.id);
-    for (const heat of heats) {
-      db.prepare('UPDATE heat SET schedule_order = ? WHERE id = ?').run(scheduleOrder2, heat.id);
-      scheduleOrder2++;
-    }
-  }
-
-  const totalHeats2 = db.prepare(`
-    SELECT COUNT(*) as cnt FROM heat h JOIN stage s ON h.stage_id = s.id WHERE s.competition_id = ?
-  `).get(comp2Id).cnt;
-
-  const scheduleList2 = db.prepare(`
-    SELECT h.schedule_order, d.name as div, s.stage_type, h.heat_number
-    FROM heat h JOIN stage s ON h.stage_id = s.id JOIN division d ON s.division_id = d.id
-    WHERE s.competition_id = ? ORDER BY h.schedule_order
-  `).all(comp2Id);
-
-  console.log('');
-  console.log('=== Competition 2 ===');
-  console.log(`  ${comp2Id} — ACTIVE`);
-  console.log(`  Open Men: 20 athletes → ${men2Heats?.format || 'N/A'}`);
-  console.log(`  Open Women: 8 athletes → ${women2Heats?.format || 'N/A'}`);
-  console.log(`  Total heats: ${totalHeats2} (all published)`);
-  console.log('');
-  console.log('=== Schedule Order (Comp 2) ===');
-  for (const h of scheduleList2) {
-    console.log(`  ${h.schedule_order}. ${h.div} — ${h.stage_type} Heat ${h.heat_number}`);
-  }
+  console.log('=== Competitions ===');
+  console.log('  1. Baltic Wakeboard Championship 2026 — COMPLETED (with scores)');
+  console.log('  2. Lithuanian Wakeboard Open 2026 — ACTIVE');
+  console.log('  3. Kaunas Wakeboard Cup 2026 — DRAFT (upcoming)');
+  console.log('  4. Vilnius Wake Festival 2026 — DRAFT (upcoming)');
 
   process.exit(0);
 }

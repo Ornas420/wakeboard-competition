@@ -70,7 +70,7 @@ log('  Scenario: 7–10 athletes (QUAL + LCQ + FINAL)');
   check('U01.13: QUAL 2 heats', cfg[0].heatCount, 2);
   check('U01.14: QUAL advance 4', cfg[0].qualifyTotal, 4);
   check('U01.15: LCQ 1 heat', cfg[1].heatCount, 1);
-  check('U01.16: LCQ distribution = LADDER', cfg[1].distribution, 'LADDER');
+  check('U01.16: LCQ distribution = STEPLADDER', cfg[1].distribution, 'STEPLADDER');
   check('U01.17: LCQ 1 run', cfg[1].runsPerAthlete, 1);
   check('U01.18: FINAL 1 heat', cfg[2].heatCount, 1);
   check('U01.19: FINAL distribution = LADDER', cfg[2].distribution, 'LADDER');

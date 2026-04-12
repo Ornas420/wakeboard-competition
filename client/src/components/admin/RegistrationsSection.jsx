@@ -20,7 +20,7 @@ export default function RegistrationsSection({ competitionId }) {
   const fetchDivisions = () => {
     api.get(`/competitions/${competitionId}/divisions`)
       .then((data) => setDivisions(data.divisions || []))
-      .catch(() => {});
+      .catch(err => setError(err.message));
   };
 
   const fetchRegistrations = () => {
@@ -35,7 +35,7 @@ export default function RegistrationsSection({ competitionId }) {
   const fetchAthletes = () => {
     api.get('/auth/athletes')
       .then(data => setAthletes(data))
-      .catch(() => {});
+      .catch(err => setError(err.message));
   };
 
   useEffect(() => {

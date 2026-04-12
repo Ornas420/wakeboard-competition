@@ -5,6 +5,26 @@ import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = Router();
 
+// GET /registrations/my — ATHLETE: get my registered competitions
+router.get('/my', authenticate, authorize('ATHLETE'), (req, res) => {
+  const competitions = db.prepare(`
+    SELECT c.id, c.name, c.start_date, c.end_date, c.location, c.status, c.image_url,
+           GROUP_CONCAT(d.name, ', ') as registered_divisions,
+           (SELECT COUNT(DISTINCT r2.athlete_id)
+            FROM registration r2
+            JOIN division d2 ON r2.division_id = d2.id
+            WHERE d2.competition_id = c.id AND r2.status = 'CONFIRMED') as athlete_count
+    FROM registration r
+    JOIN division d ON r.division_id = d.id
+    JOIN competition c ON d.competition_id = c.id
+    WHERE r.athlete_id = ? AND r.status != 'WITHDRAWN'
+    GROUP BY c.id
+    ORDER BY c.start_date DESC
+  `).all(req.user.id);
+
+  res.json({ competitions });
+});
+
 // GET /registrations/competition/:competitionId — ADMIN only
 router.get('/competition/:competitionId', authenticate, authorize('ADMIN'), (req, res) => {
   const competition = db.prepare('SELECT id FROM competition WHERE id = ?').get(req.params.competitionId);

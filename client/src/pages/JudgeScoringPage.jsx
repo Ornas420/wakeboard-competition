@@ -396,7 +396,7 @@ export default function JudgeScoringPage() {
         }
         setAthletes(Array.from(seen.values()));
       })
-      .catch(() => {});
+      .catch(err => setError(err.message));
   }, [currentHeatId, scoreRefetchKey]);
 
   useEffect(() => {
@@ -462,7 +462,7 @@ export default function JudgeScoringPage() {
       }, 400);
     } catch (err) {
       setSubmitStatus('error');
-      setSubmitError(err.message || 'Not saved - tap to retry');
+      setSubmitError(err.message || 'Score submission failed');
     } finally { setSubmitting(false); }
   };
 

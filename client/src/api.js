@@ -18,12 +18,18 @@ async function request(method, path, body = null) {
 
   const res = await fetch(`/api${path}`, options);
 
-  if (res.status === 401 && onUnauthorized) {
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('Server error — please try again');
+  }
+
+  if (res.status === 401 && onUnauthorized && token) {
+    // Only trigger session expired for authenticated requests, not login attempts
     onUnauthorized();
     throw new Error('Session expired');
   }
-
-  const data = await res.json();
 
   if (!res.ok) {
     throw new Error(data.error || 'Request failed');
