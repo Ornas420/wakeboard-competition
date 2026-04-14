@@ -270,19 +270,79 @@ check('U05.08: CORRECTION_REQUESTED', EVENTS.CORRECTION_REQUESTED, 'correction:r
 assert('U05.09: 8 event types defined', Object.keys(EVENTS).length === 8);
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TS-U06: Format Config Consistency
+// TS-U06: Format Config Consistency (meaningful validations across all brackets)
 // ═══════════════════════════════════════════════════════════════════════════
 log('TS-U06: Format Config Consistency Checks');
 
-log('  Scenario: All brackets have correct stage types');
-for (const count of [3, 6, 7, 10, 11, 12, 13, 18, 19, 20, 21, 24, 25, 36, 37, 40, 41, 48, 49, 54, 55, 60]) {
-  const cfg = getFormatConfig(count);
-  check(`U06.${count}: ${count} athletes — first stage QUALIFICATION`, cfg[0].type, 'QUALIFICATION');
-  check(`U06.${count}b: last stage FINAL`, cfg[cfg.length - 1].type, 'FINAL');
-  assert(`U06.${count}c: FINAL qualifyTotal is null`, cfg[cfg.length - 1].qualifyTotal === null);
-  assert(`U06.${count}d: FINAL has 1 heat`, cfg[cfg.length - 1].heatCount === 1);
-  assert(`U06.${count}e: all runsPerAthlete ≥ 1`, cfg.every(s => s.runsPerAthlete >= 1));
-  assert(`U06.${count}f: max 6 athletes per heat`, cfg[0].heatCount * 6 >= count || cfg[0].heatCount >= Math.ceil(count / 6));
+{
+  const counts = [3, 6, 7, 10, 11, 12, 13, 18, 19, 20, 21, 24, 25, 36, 37, 40, 41, 48, 49, 54, 55, 60];
+  const validOrder = ['QUALIFICATION', 'LCQ', 'QUARTERFINAL', 'SEMIFINAL', 'FINAL'];
+
+  // 1. Capacity: QUAL heats can hold all athletes (max 6 per heat)
+  const capacityOk = counts.every(n => {
+    const cfg = getFormatConfig(n);
+    return cfg[0].heatCount * 6 >= n;
+  });
+  assert('U06.01: QUAL capacity holds all athletes (≤6 per heat) for all brackets', capacityOk);
+
+  // 2. Qualify chain: qualifyTotal never exceeds stage capacity
+  const qualifyOk = counts.every(n => {
+    const cfg = getFormatConfig(n);
+    return cfg.every(s => s.qualifyTotal === null || s.qualifyTotal <= s.heatCount * 6);
+  });
+  assert('U06.02: qualifyTotal never exceeds stage capacity for all brackets', qualifyOk);
+
+  // 3. Stage sequence follows valid order (no wrong ordering)
+  const sequenceOk = counts.every(n => {
+    const cfg = getFormatConfig(n);
+    const types = cfg.map(s => s.type);
+    const indices = types.map(t => validOrder.indexOf(t));
+    return indices.every((idx, i) => i === 0 || idx > indices[i - 1]);
+  });
+  assert('U06.03: Stage sequence follows QUAL→LCQ→QF→SEMI→FINAL order for all brackets', sequenceOk);
+
+  // 4. LCQ always has 1 run per athlete
+  const lcqRunsOk = counts.every(n => {
+    const cfg = getFormatConfig(n);
+    return cfg.filter(s => s.type === 'LCQ').every(s => s.runsPerAthlete === 1);
+  });
+  assert('U06.04: LCQ stages always have 1 run per athlete', lcqRunsOk);
+
+  // 5. Non-LCQ stages always have 2 runs per athlete
+  const nonLcqRunsOk = counts.every(n => {
+    const cfg = getFormatConfig(n);
+    return cfg.filter(s => s.type !== 'LCQ').every(s => s.runsPerAthlete === 2);
+  });
+  assert('U06.05: Non-LCQ stages always have 2 runs per athlete', nonLcqRunsOk);
+
+  // 6. Distribution matches stage type (QUAL=SNAKE, FINAL=LADDER, others=STEPLADDER)
+  const distOk = counts.every(n => {
+    const cfg = getFormatConfig(n);
+    return cfg.every(s => {
+      if (s.type === 'QUALIFICATION') return s.distribution === 'SNAKE';
+      if (s.type === 'FINAL') return s.distribution === 'LADDER';
+      return s.distribution === 'STEPLADDER';
+    });
+  });
+  assert('U06.06: Distribution type matches stage (QUAL=SNAKE, FINAL=LADDER, others=STEPLADDER)', distOk);
+
+  // 7. Reversed flag correct (QUAL/LCQ not reversed, SEMI/QF/FINAL reversed)
+  const reversedOk = counts.every(n => {
+    const cfg = getFormatConfig(n);
+    return cfg.every(s => {
+      if (s.type === 'QUALIFICATION' || s.type === 'LCQ') return s.reversed === false;
+      return s.reversed === true;
+    });
+  });
+  assert('U06.07: Reversed flag correct (QUAL/LCQ=false, SEMI/QF/FINAL=true)', reversedOk);
+
+  // 8. FINAL always has exactly 1 heat and null qualifyTotal
+  const finalOk = counts.every(n => {
+    const cfg = getFormatConfig(n);
+    const fin = cfg[cfg.length - 1];
+    return fin.type === 'FINAL' && fin.heatCount === 1 && fin.qualifyTotal === null;
+  });
+  assert('U06.08: FINAL always 1 heat with null qualifyTotal for all brackets', finalOk);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
