@@ -386,11 +386,8 @@ log('TS-U07: Distribution Edge Cases');
 
 // ═══════════════════════════════════════════════════════════════════════════
 const duration = ((Date.now() - startTime) / 1000).toFixed(3);
-console.log('\n╔═══════════════════════════════════════════════════════╗');
-console.log('║  Unit Test Results                                    ║');
-console.log('╠═══════════════════════════════════════════════════════╣');
-console.log(`║  Test suites: ${suites}${' '.repeat(40 - String(suites).length)}║`);
-console.log(`║  Tests:       ${passed + failed} (${passed} passed, ${failed} failed)${' '.repeat(Math.max(0, 26 - String(passed + failed).length - String(passed).length - String(failed).length))}║`);
-console.log(`║  Duration:    ${duration}s${' '.repeat(Math.max(0, 39 - duration.length))}║`);
-console.log('╚═══════════════════════════════════════════════════════╝');
+console.log('\n--- Unit Test Results ---');
+console.log(`Test suites: ${suites}`);
+console.log(`Tests:       ${passed + failed} (${passed} passed, ${failed} failed)`);
+console.log(`Duration:    ${duration}s`);
 process.exit(failed > 0 ? 1 : 0);
