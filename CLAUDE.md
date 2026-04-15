@@ -366,6 +366,9 @@ cd server && node test.integration.js
 # Run integration tests with coverage report
 cd server && npx c8 --include="src/services/**" --include="src/utils/**" node test.integration.js
 
+# Run all tests sequentially (unit + integration + E2E) — combined backend coverage
+cd server && npx c8 --include="src/**" node run-all-tests.js
+
 # Run E2E tests (140 tests, server must be running, auto-seeds DB)
 cd server && node test.js
 ```
