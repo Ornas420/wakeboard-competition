@@ -47,6 +47,30 @@ function validateAllScoresComputed(heatId) {
   return { valid: missing.length === 0, missing };
 }
 
+/**
+ * Reorder athletes for Finals Run 2 based on Run 1 scores.
+ * Lowest Run 1 score rides first, highest rides last.
+ * Called from submitScore when all Run 1 scores are computed.
+ * @param {string} heatId
+ */
+function reorderFinalsRun2(heatId) {
+  const allRun1 = db.prepare(`
+    SELECT ar.athlete_id, ar.computed_score
+    FROM athlete_run ar
+    WHERE ar.heat_id = ? AND ar.run_number = 1
+  `).all(heatId);
+
+  const allComputed = allRun1.every(r => r.computed_score !== null);
+  if (!allComputed) return;
+
+  const sorted = allRun1.sort((a, b) => a.computed_score - b.computed_score);
+  for (let i = 0; i < sorted.length; i++) {
+    db.prepare(
+      'UPDATE heat_athlete SET run_order = ? WHERE heat_id = ? AND athlete_id = ?'
+    ).run(i + 1, heatId, sorted[i].athlete_id);
+  }
+}
+
 // ── 1. Score Submission ──────────────────────────────────────────────────
 
 /**
@@ -145,22 +169,7 @@ export function submitScore(athleteRunId, judgeId, score, io) {
 
       // Finals Run 2 reorder: after all Run 1 scores are computed, reorder for Run 2
       if (run.run2_reorder && run.run_number === 1) {
-        const allRun1 = db.prepare(`
-          SELECT ar.athlete_id, ar.computed_score
-          FROM athlete_run ar
-          WHERE ar.heat_id = ? AND ar.run_number = 1
-        `).all(run.heat_id);
-
-        const allComputed = allRun1.every(r => r.computed_score !== null);
-        if (allComputed) {
-          // Sort by score ASC (lowest first, highest last for Run 2)
-          const sorted = allRun1.sort((a, b) => a.computed_score - b.computed_score);
-          for (let i = 0; i < sorted.length; i++) {
-            db.prepare(
-              'UPDATE heat_athlete SET run_order = ? WHERE heat_id = ? AND athlete_id = ?'
-            ).run(i + 1, run.heat_id, sorted[i].athlete_id);
-          }
-        }
+        reorderFinalsRun2(run.heat_id);
       }
     }
 

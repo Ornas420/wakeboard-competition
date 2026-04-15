@@ -132,71 +132,60 @@ async function seed() {
     return results;
   }
 
+  // Helper: score all runs in a single heat with random scores
+  function scoreHeatRuns(heatId, judgeIds) {
+    const randomScore = () => Math.round((Math.random() * 40 + 55) * 2) / 2; // 55-95 range
+    const runs = db.prepare(
+      'SELECT id FROM athlete_run WHERE heat_id = ? ORDER BY athlete_id, run_number'
+    ).all(heatId);
+    for (const run of runs) {
+      for (const judgeId of judgeIds) {
+        submitScore(run.id, judgeId, randomScore(), null);
+      }
+    }
+  }
+
+  // Helper: process single heat lifecycle (open → score → review → approve → close)
+  function processHeatLifecycle(heatId, judgeIds) {
+    const athletes = db.prepare(
+      'SELECT athlete_id FROM heat_athlete WHERE heat_id = ?'
+    ).all(heatId);
+    if (athletes.length === 0) return;
+
+    db.prepare("UPDATE heat SET status = 'OPEN' WHERE id = ?").run(heatId);
+    scoreHeatRuns(heatId, judgeIds);
+    submitForReview(heatId, judgeIds[0]);
+    approveHeat(heatId, judgeIds[0], null);
+    closeHeat(heatId, judgeIds[0], null);
+  }
+
   // Helper: score and process all heats for a competition (for COMPLETED comps)
   function scoreEntireCompetition(compId, judgeIds) {
-    const randomScore = () => Math.round((Math.random() * 40 + 55) * 2) / 2; // 55-95 range
-
-    // Process stages in order — each stage must complete before the next is populated
-    const stages = db.prepare(`
-      SELECT s.id, s.stage_type, s.status FROM stage s
-      JOIN division d ON s.division_id = d.id
-      WHERE s.competition_id = ?
-      ORDER BY d.display_order, s.stage_order
-    `).all(compId);
-
-    // Group stages by division for sequential processing
-    const divStages = {};
-    const divs = db.prepare(`
-      SELECT id FROM division WHERE competition_id = ? ORDER BY display_order
-    `).all(compId);
+    const divs = db.prepare(
+      'SELECT id FROM division WHERE competition_id = ? ORDER BY display_order'
+    ).all(compId);
 
     for (const div of divs) {
-      divStages[div.id] = db.prepare(`
-        SELECT s.id, s.stage_type, s.status FROM stage s
-        WHERE s.division_id = ? ORDER BY s.stage_order
-      `).all(div.id);
-    }
+      const divStages = db.prepare(
+        'SELECT id FROM stage WHERE division_id = ? ORDER BY stage_order'
+      ).all(div.id);
 
-    for (const divId of Object.keys(divStages)) {
       // Activate first stage of each division
-      if (divStages[divId].length > 0) {
-        db.prepare("UPDATE stage SET status = 'ACTIVE' WHERE id = ?").run(divStages[divId][0].id);
+      if (divStages.length > 0) {
+        db.prepare("UPDATE stage SET status = 'ACTIVE' WHERE id = ?").run(divStages[0].id);
       }
 
-      for (const stage of divStages[divId]) {
-        // Re-read stage status (may have been activated by previous stage completion or above)
+      for (const stage of divStages) {
+        // Re-read stage status (may have been activated by previous stage completion)
         const currentStage = db.prepare('SELECT status FROM stage WHERE id = ?').get(stage.id);
         if (currentStage.status !== 'ACTIVE') continue;
 
         const heats = db.prepare(
-          'SELECT id, heat_number FROM heat WHERE stage_id = ? ORDER BY heat_number'
+          'SELECT id FROM heat WHERE stage_id = ? ORDER BY heat_number'
         ).all(stage.id);
 
         for (const heat of heats) {
-          // Check if heat has athletes
-          const athletes = db.prepare(
-            'SELECT athlete_id FROM heat_athlete WHERE heat_id = ?'
-          ).all(heat.id);
-          if (athletes.length === 0) continue;
-
-          // Open heat
-          db.prepare("UPDATE heat SET status = 'OPEN' WHERE id = ?").run(heat.id);
-
-          // Score all runs
-          const runs = db.prepare(
-            'SELECT id, athlete_id, run_number FROM athlete_run WHERE heat_id = ? ORDER BY athlete_id, run_number'
-          ).all(heat.id);
-
-          for (const run of runs) {
-            for (const judgeId of judgeIds) {
-              submitScore(run.id, judgeId, randomScore(), null);
-            }
-          }
-
-          // Review → Approve → Close
-          submitForReview(heat.id, judgeIds[0]);
-          approveHeat(heat.id, judgeIds[0], null);
-          closeHeat(heat.id, judgeIds[0], null);
+          processHeatLifecycle(heat.id, judgeIds);
         }
       }
     }

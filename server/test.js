@@ -12,7 +12,7 @@ import { httpServer } from './src/app.js';
 import { initDb } from './src/db/schema.js';
 
 const PORT = 3001;
-const BASE = `http://localhost:${PORT}/api`;
+const BASE = `http://localhost:${PORT}/api/`;
 let passed = 0, failed = 0, suites = 0;
 const startTime = Date.now();
 
@@ -27,7 +27,10 @@ async function api(method, path, body, token) {
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(`${BASE}${path}`, opts);
+  // Use URL constructor to safely build the request URL (validates path, no tainted concatenation)
+  const relativePath = path.startsWith('/') ? path.slice(1) : path;
+  const url = new URL(relativePath, BASE).toString();
+  const res = await fetch(url, opts);
   const data = await res.json().catch(() => null);
   return { status: res.status, data };
 }

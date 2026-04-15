@@ -184,7 +184,7 @@ log('TS-U02: snakeDistribute — Zigzag Seeding');
 
 {
   const result = snakeDistribute(athletes(7), 2);
-  check('U02.06: 7/2 → sizes 4+3', [result[0].length, result[1].length].sort().join(','), '3,4');
+  check('U02.06: 7/2 → sizes 4+3', [result[0].length, result[1].length].sort((a, b) => a - b).join(','), '3,4');
 }
 
 {
