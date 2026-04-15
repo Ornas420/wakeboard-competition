@@ -44,7 +44,6 @@ and stage progression with per-heat advancement. Built as a bachelor's thesis pr
         HeatCard.jsx           Renders single heat
     utils/
       format.js             Shared: formatDateRange, STAGE_LABELS, GRADIENTS, getHeatStatusColor
-      format.test.js        26 frontend unit tests
     pages/
       HomePage.jsx              Landing: hero, active comp slider, card grid, results
       BrowseCompetitionsPage.jsx All competitions with filters (status, date, level)
@@ -78,8 +77,9 @@ and stage progression with per-heat advancement. Built as a bachelor's thesis pr
       scoringEngine.js  Score submission, approval, stage progression (complete, JSDoc)
     utils/
       events.js         Socket.IO event name constants (EVENTS object)
-  test.js               140 E2E integration tests across 9 scenarios
-  test.unit.js          223 unit tests (pure logic: algorithms, formats, constants)
+  test.js               140 E2E tests (HTTP, across 9 scenarios)
+  test.integration.js   51 integration tests (service layer + DB, same process)
+  test.unit.js          102 unit tests (pure logic: algorithms, formats, constants)
 ```
 
 ## Roles
@@ -357,9 +357,14 @@ cd server && npm run dev
 # Run seed data (2 competitions, full data)
 cd server && node src/db/seed.js
 
-# Run unit tests (252 tests, no server needed)
+# Run unit tests (102 tests, pure logic, no DB needed)
 cd server && node test.unit.js
-node client/src/utils/format.test.js
+
+# Run integration tests (51 tests, service layer + DB, same process)
+cd server && node test.integration.js
+
+# Run integration tests with coverage report
+cd server && npx c8 --include="src/services/**" --include="src/utils/**" node test.integration.js
 
 # Run E2E tests (140 tests, server must be running, auto-seeds DB)
 cd server && node test.js
