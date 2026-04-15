@@ -8,7 +8,8 @@
 import { getFormatConfig, snakeDistribute, ladderDistribute, stepladderDistribute } from './src/services/heatGeneration.js';
 import { EVENTS } from './src/utils/events.js';
 
-let passed = 0, failed = 0;
+let passed = 0, failed = 0, suites = 0;
+const startTime = Date.now();
 
 function check(tc, actual, expected) {
   const a = JSON.stringify(actual), e = JSON.stringify(expected);
@@ -21,7 +22,11 @@ function assert(tc, condition) {
   else { console.log(`    ✗ ${tc}`); failed++; }
 }
 
-function log(s) { console.log(`\n  ${s}`); }
+function log(s) {
+  // Count only top-level test suites (TS-U...), not sub-scenarios
+  if (s.startsWith('TS-')) suites++;
+  console.log(`\n  ${s}`);
+}
 
 // Helper: create athlete array
 function athletes(n) {
@@ -380,7 +385,12 @@ log('TS-U07: Distribution Edge Cases');
 
 
 // ═══════════════════════════════════════════════════════════════════════════
+const duration = ((Date.now() - startTime) / 1000).toFixed(3);
 console.log('\n╔═══════════════════════════════════════════════════════╗');
-console.log(`║  Unit Test Results: ${passed} passed, ${failed} failed${' '.repeat(Math.max(0, 28 - String(passed).length - String(failed).length))}║`);
+console.log('║  Unit Test Results                                    ║');
+console.log('╠═══════════════════════════════════════════════════════╣');
+console.log(`║  Test suites: ${suites}${' '.repeat(40 - String(suites).length)}║`);
+console.log(`║  Tests:       ${passed + failed} (${passed} passed, ${failed} failed)${' '.repeat(Math.max(0, 26 - String(passed + failed).length - String(passed).length - String(failed).length))}║`);
+console.log(`║  Duration:    ${duration}s${' '.repeat(Math.max(0, 39 - duration.length))}║`);
 console.log('╚═══════════════════════════════════════════════════════╝');
 process.exit(failed > 0 ? 1 : 0);

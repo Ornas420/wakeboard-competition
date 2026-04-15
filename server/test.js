@@ -9,7 +9,8 @@
 import { execSync } from 'child_process';
 
 const BASE = 'http://localhost:3001/api';
-let passed = 0, failed = 0;
+let passed = 0, failed = 0, suites = 0;
+const startTime = Date.now();
 
 function seedDatabase() {
   console.log('  Seeding database...');
@@ -37,7 +38,10 @@ function assert(tc, condition) {
   else { console.log(`    ✗ ${tc}`); failed++; }
 }
 
-function log(s) { console.log(`\n  ${s}`); }
+function log(s) {
+  if (s.startsWith('TS-')) suites++;
+  console.log(`\n  ${s}`);
+}
 
 async function login(email) {
   const { data } = await api('POST', '/auth/login', { email, password: 'password123' });
@@ -660,8 +664,13 @@ async function main() {
   check('TC-09.07: No division_id → 400', lb2, 400);
 
   // ═══════════════════════════════════════════════════════════════════════
+  const duration = ((Date.now() - startTime) / 1000).toFixed(3);
   console.log('\n╔═══════════════════════════════════════════════════════╗');
-  console.log(`║  Results: ${passed} passed, ${failed} failed${' '.repeat(Math.max(0, 36 - String(passed).length - String(failed).length))}║`);
+  console.log('║  E2E Test Results                                     ║');
+  console.log('╠═══════════════════════════════════════════════════════╣');
+  console.log(`║  Test suites: ${suites}${' '.repeat(40 - String(suites).length)}║`);
+  console.log(`║  Tests:       ${passed + failed} (${passed} passed, ${failed} failed)${' '.repeat(Math.max(0, 26 - String(passed + failed).length - String(passed).length - String(failed).length))}║`);
+  console.log(`║  Duration:    ${duration}s${' '.repeat(Math.max(0, 39 - duration.length))}║`);
   console.log('╚═══════════════════════════════════════════════════════╝');
   // Re-seed to leave DB clean after tests
   seedDatabase();

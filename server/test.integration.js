@@ -13,7 +13,8 @@ import { generateHeatsForDivision } from './src/services/heatGeneration.js';
 import { submitScore, submitForReview, approveHeat, closeHeat, manualReorder, requestCorrection, reopenHeat } from './src/services/scoringEngine.js';
 import db from './src/db/schema.js';
 
-let passed = 0, failed = 0;
+let passed = 0, failed = 0, suites = 0;
+const startTime = Date.now();
 
 function check(tc, actual, expected) {
   const a = JSON.stringify(actual), e = JSON.stringify(expected);
@@ -26,7 +27,10 @@ function assert(tc, condition) {
   else { console.log(`    ✗ ${tc}`); failed++; }
 }
 
-function log(s) { console.log(`\n  ${s}`); }
+function log(s) {
+  if (s.startsWith('TS-')) suites++;
+  console.log(`\n  ${s}`);
+}
 
 console.log('╔═══════════════════════════════════════════════════════╗');
 console.log('║  WakeScore — Integration Tests (Service Layer + DB)   ║');
@@ -367,7 +371,12 @@ console.log('\n  Restoring database...');
 execSync('node src/db/seed.js', { stdio: 'ignore', cwd: import.meta.dirname });
 console.log('  Database restored.');
 
+const duration = ((Date.now() - startTime) / 1000).toFixed(3);
 console.log('\n╔═══════════════════════════════════════════════════════╗');
-console.log(`║  Integration Test Results: ${passed} passed, ${failed} failed${' '.repeat(Math.max(0, 20 - String(passed).length - String(failed).length))}║`);
+console.log('║  Integration Test Results                             ║');
+console.log('╠═══════════════════════════════════════════════════════╣');
+console.log(`║  Test suites: ${suites}${' '.repeat(40 - String(suites).length)}║`);
+console.log(`║  Tests:       ${passed + failed} (${passed} passed, ${failed} failed)${' '.repeat(Math.max(0, 26 - String(passed + failed).length - String(passed).length - String(failed).length))}║`);
+console.log(`║  Duration:    ${duration}s${' '.repeat(Math.max(0, 39 - duration.length))}║`);
 console.log('╚═══════════════════════════════════════════════════════╝');
 process.exit(failed > 0 ? 1 : 0);
