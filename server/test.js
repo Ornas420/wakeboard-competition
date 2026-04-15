@@ -13,6 +13,8 @@ import { initDb } from './src/db/schema.js';
 
 const PORT = 3001;
 const BASE = `http://localhost:${PORT}/api/`;
+// Test fixture password matching seed.js — override via TEST_PASSWORD env var if needed
+const TEST_PASSWORD = process.env.TEST_PASSWORD || 'password123';
 let passed = 0, failed = 0, suites = 0;
 const startTime = Date.now();
 
@@ -42,9 +44,14 @@ async function api(method, path, body, token) {
   return { status: res.status, data };
 }
 
+// Sanitize values before logging to prevent log injection (strip CR/LF)
+function safeLog(value) {
+  return JSON.stringify(value).replace(/[\r\n]/g, '');
+}
+
 function check(tc, actual, expected) {
   if (actual === expected) { console.log(`    ✓ ${tc}`); passed++; }
-  else { console.log(`    ✗ ${tc} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`); failed++; }
+  else { console.log(`    ✗ ${tc} — expected ${safeLog(expected)}, got ${safeLog(actual)}`); failed++; }
 }
 
 function assert(tc, condition) {
@@ -58,7 +65,7 @@ function log(s) {
 }
 
 async function login(email) {
-  const { data } = await api('POST', '/auth/login', { email, password: 'password123' });
+  const { data } = await api('POST', '/auth/login', { email, password: TEST_PASSWORD });
   return data?.token;
 }
 
@@ -143,7 +150,7 @@ async function main() {
 
   // Login
   log('  Scenario: User Login');
-  const { status: lg1, data: lgData } = await api('POST', '/auth/login', { email: 'admin@wakeboard.lt', password: 'password123' });
+  const { status: lg1, data: lgData } = await api('POST', '/auth/login', { email: 'admin@wakeboard.lt', password: TEST_PASSWORD });
   check('TC-01.06: Valid login → 200', lg1, 200);
   assert('TC-01.06b: Returns token', !!lgData?.token);
 
