@@ -7,14 +7,18 @@
  * Coverage: npx c8 --include="src/**" node test.js
  */
 
+import 'dotenv/config';
 import { execSync } from 'child_process';
 import { httpServer } from './src/app.js';
 import { initDb } from './src/db/schema.js';
 
 const PORT = 3001;
 const BASE = `http://localhost:${PORT}/api/`;
-// Test fixture password matching seed.js — override via TEST_PASSWORD env var if needed
-const TEST_PASSWORD = process.env.TEST_PASSWORD || 'password123';
+// Test fixture password loaded from .env (never hardcoded, .env is gitignored)
+const TEST_PASSWORD = process.env.TEST_PASSWORD;
+if (!TEST_PASSWORD) {
+  throw new Error('TEST_PASSWORD environment variable is required (set it in server/.env)');
+}
 let passed = 0, failed = 0, suites = 0;
 const startTime = Date.now();
 
