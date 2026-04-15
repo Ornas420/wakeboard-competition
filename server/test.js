@@ -22,12 +22,19 @@ function seedDatabase() {
   console.log('  Database seeded.\n');
 }
 
+// Allowlist: REST path segments with alphanumeric, /, _, -, and query chars (?, =, &, .)
+const SAFE_PATH_RE = /^\/?[a-zA-Z0-9/_\-?=&.]+$/;
+
 async function api(method, path, body, token) {
+  // Explicit sanitization: validate path against allowlist before URL construction
+  if (typeof path !== 'string' || !SAFE_PATH_RE.test(path)) {
+    throw new Error('Invalid API path');
+  }
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
-  // Use URL constructor to safely build the request URL (validates path, no tainted concatenation)
+  // URL constructor provides additional structural validation
   const relativePath = path.startsWith('/') ? path.slice(1) : path;
   const url = new URL(relativePath, BASE).toString();
   const res = await fetch(url, opts);
