@@ -1,14 +1,18 @@
 /**
- * Comprehensive Integration Tests — Wakeboard Competition System
+ * End-to-End Tests — Wakeboard Competition System
  * ~140 test cases across 9 test scenarios
  *
- * Auto-seeds DB on start. Prerequisites: server running on port 3001
+ * Auto-seeds DB and starts internal Express server (for c8 coverage in same process).
  * Usage: node test.js
+ * Coverage: npx c8 --include="src/**" node test.js
  */
 
 import { execSync } from 'child_process';
+import { httpServer } from './src/app.js';
+import { initDb } from './src/db/schema.js';
 
-const BASE = 'http://localhost:3001/api';
+const PORT = 3001;
+const BASE = `http://localhost:${PORT}/api`;
 let passed = 0, failed = 0, suites = 0;
 const startTime = Date.now();
 
@@ -77,6 +81,15 @@ async function main() {
 
   // Auto-seed DB for clean state
   seedDatabase();
+
+  // Start Express server in same process (enables c8 coverage of routes/middleware)
+  initDb();
+  await new Promise((resolve) => {
+    httpServer.listen(PORT, () => {
+      console.log(`  Test server running on http://localhost:${PORT}\n`);
+      resolve();
+    });
+  });
 
   // Login seeded users
   const adminToken = await login('admin@wakeboard.lt');
@@ -375,6 +388,57 @@ async function main() {
     check('TC-04.11: Delete with heat assignment → 409', rr11, 409);
   }
 
+  // GET /registrations/my — ATHLETE sees own registrations
+  log('  Scenario: Athlete Self-Registrations View');
+  const { status: my1, data: my1Data } = await api('GET', '/registrations/my', null, athToken);
+  check('TC-04.12: Athlete GET /my → 200', my1, 200);
+  assert('TC-04.13: Returns competitions array', Array.isArray(my1Data?.competitions));
+
+  const { status: my2 } = await api('GET', '/registrations/my', null, adminToken);
+  check('TC-04.14: Admin GET /my → 403', my2, 403);
+
+  const { status: my3 } = await api('GET', '/registrations/my');
+  check('TC-04.15: No token → 401', my3, 401);
+
+  // POST /registrations/admin — admin registers existing or guest athlete
+  log('  Scenario: Admin Registration (existing + guest)');
+  const { data: adminDraftComp } = await api('POST', '/competitions', { name: 'Admin Reg Test', start_date: '2026-11-15', location: 'X', judge_count: 2 }, adminToken);
+  const { data: adminDraftDiv } = await api('POST', `/competitions/${adminDraftComp.id}/divisions`, { name: 'Admin Div' }, adminToken);
+  const adthAthId = (await api('GET', '/auth/athletes', null, adminToken)).data[0]?.id;
+
+  // Register existing athlete
+  const { status: ar1, data: ar1Data } = await api('POST', '/registrations/admin', { division_id: adminDraftDiv.id, athlete_id: adthAthId }, adminToken);
+  check('TC-04.16: Admin registers existing athlete → 201', ar1, 201);
+  check('TC-04.17: Status CONFIRMED', ar1Data?.status, 'CONFIRMED');
+
+  // Duplicate
+  const { status: ar2 } = await api('POST', '/registrations/admin', { division_id: adminDraftDiv.id, athlete_id: adthAthId }, adminToken);
+  check('TC-04.18: Duplicate admin registration → 409', ar2, 409);
+
+  // Guest athlete
+  const { status: ar3, data: ar3Data } = await api('POST', '/registrations/admin', { division_id: adminDraftDiv.id, name: 'Guest Rider' }, adminToken);
+  check('TC-04.19: Admin registers guest → 201', ar3, 201);
+  check('TC-04.20: Guest name saved', ar3Data?.name, 'Guest Rider');
+
+  // Missing fields
+  const { status: ar4 } = await api('POST', '/registrations/admin', {}, adminToken);
+  check('TC-04.21: Missing division_id → 400', ar4, 400);
+
+  const { status: ar5 } = await api('POST', '/registrations/admin', { division_id: adminDraftDiv.id }, adminToken);
+  check('TC-04.22: Missing athlete_id and name → 400', ar5, 400);
+
+  // Non-existent division
+  const { status: ar6 } = await api('POST', '/registrations/admin', { division_id: 'bad-id', athlete_id: adthAthId }, adminToken);
+  check('TC-04.23: Non-existent division → 404', ar6, 404);
+
+  // Non-existent athlete
+  const { status: ar7 } = await api('POST', '/registrations/admin', { division_id: adminDraftDiv.id, athlete_id: 'bad-id' }, adminToken);
+  check('TC-04.24: Non-existent athlete → 404', ar7, 404);
+
+  // Non-admin
+  const { status: ar8 } = await api('POST', '/registrations/admin', { division_id: adminDraftDiv.id, name: 'X' }, athToken);
+  check('TC-04.25: Non-admin → 403', ar8, 403);
+
   // ═══════════════════════════════════════════════════════════════════════
   // TS-05: Heat Generation (IWWF Format)
   // ═══════════════════════════════════════════════════════════════════════
@@ -563,6 +627,36 @@ async function main() {
   const { status: it2 } = await api('PATCH', `/heats/${heat1.id}/status`, { status: 'APPROVED' }, adminToken);
   check('TC-07.11: CLOSED → APPROVED invalid → 400', it2, 400);
 
+  // Error path tests — review/approve/close with invalid heat states
+  log('  Scenario: Heat Lifecycle Error Paths');
+
+  // Review on CLOSED heat → 400
+  const { status: he1 } = await api('POST', `/heats/${heat1.id}/review`, null, hjToken);
+  check('TC-07.22: Review on CLOSED heat → 400', he1, 400);
+
+  // Approve on CLOSED heat → 400
+  const { status: he2 } = await api('POST', `/heats/${heat1.id}/approve`, null, hjToken);
+  check('TC-07.23: Approve on CLOSED heat → 400', he2, 400);
+
+  // Close already CLOSED heat → 400
+  const { status: he3 } = await api('POST', `/heats/${heat1.id}/close`, null, hjToken);
+  check('TC-07.24: Close on CLOSED heat → 400', he3, 400);
+
+  // Ranking with non-array → 400
+  const { status: he4 } = await api('PATCH', `/heats/${heat1.id}/ranking`, { ranking: 'not-array' }, hjToken);
+  check('TC-07.25: Ranking non-array → 400', he4, 400);
+
+  // Ranking on CLOSED heat → 400
+  const { status: he5 } = await api('PATCH', `/heats/${heat1.id}/ranking`, { ranking: [] }, hjToken);
+  check('TC-07.26: Ranking on CLOSED → 400', he5, 400);
+
+  // Review a PENDING heat (not OPEN) → 400
+  const pendingHeat = qualHeats[1];
+  if (pendingHeat && pendingHeat.status === 'PENDING') {
+    const { status: he6 } = await api('POST', `/heats/${pendingHeat.id}/review`, null, hjToken);
+    check('TC-07.27: Review on PENDING heat → 400', he6, 400);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // TS-08: Stage Progression & Advancement
   // ═══════════════════════════════════════════════════════════════════════
@@ -669,7 +763,9 @@ async function main() {
   console.log(`Test suites: ${suites}`);
   console.log(`Tests:       ${passed + failed} (${passed} passed, ${failed} failed)`);
   console.log(`Duration:    ${duration}s`);
-  // Re-seed to leave DB clean after tests
+
+  // Shut down server and re-seed DB
+  httpServer.close();
   seedDatabase();
   process.exit(failed > 0 ? 1 : 0);
 }
