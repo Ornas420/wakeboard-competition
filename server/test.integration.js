@@ -283,6 +283,55 @@ log('TS-I04: manualReorder, requestCorrection, reopenHeat');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// TS-I06: Heat Lifecycle Error Branches (moved from E2E TC-07.22-27)
+// ═══════════════════════════════════════════════════════════════════════════
+log('TS-I06: Heat Lifecycle Error Branches');
+
+{
+  // Use the QUAL heat from TS-I02 — it's CLOSED at this point (after I03.08)
+  const qualStage = db.prepare("SELECT id FROM stage WHERE division_id = ? AND stage_type = 'QUALIFICATION'").get(divId);
+  const closedHeat = db.prepare('SELECT id FROM heat WHERE stage_id = ?').get(qualStage.id);
+
+  // submitForReview on CLOSED heat → throws 400
+  try { submitForReview(closedHeat.id, hjId); assert('I06.01', false); }
+  catch (e) { check('I06.01: submitForReview on CLOSED → 400', e.status, 400); }
+
+  // approveHeat on CLOSED → throws 400
+  try { approveHeat(closedHeat.id, hjId, null); assert('I06.02', false); }
+  catch (e) { check('I06.02: approveHeat on CLOSED → 400', e.status, 400); }
+
+  // closeHeat on CLOSED → throws 400
+  try { closeHeat(closedHeat.id, hjId, null); assert('I06.03', false); }
+  catch (e) { check('I06.03: closeHeat on CLOSED → 400', e.status, 400); }
+
+  // manualReorder on CLOSED → throws 400
+  try { manualReorder(closedHeat.id, [], hjId); assert('I06.04', false); }
+  catch (e) { check('I06.04: manualReorder on CLOSED → 400', e.status, 400); }
+
+  // reopenHeat on non-APPROVED → throws 400
+  try { reopenHeat(closedHeat.id, hjId, null); assert('I06.05', false); }
+  catch (e) { check('I06.05: reopenHeat on CLOSED → 400', e.status, 400); }
+
+  // Test on PENDING heat — create new division for clean state
+  const pendingDivId = uuidv4();
+  db.prepare('INSERT INTO division (id, competition_id, name, display_order) VALUES (?, ?, ?, ?)').run(pendingDivId, compId, 'Pending Test', 4);
+  athleteIds.slice(0, 4).forEach((id, i) => {
+    db.prepare('INSERT INTO registration (id, competition_id, division_id, athlete_id, status, seed) VALUES (?, ?, ?, ?, ?, ?)').run(uuidv4(), compId, pendingDivId, id, 'CONFIRMED', i + 1);
+  });
+  generateHeatsForDivision(pendingDivId);
+  const pendingStage = db.prepare("SELECT id FROM stage WHERE division_id = ? AND stage_type = 'QUALIFICATION'").get(pendingDivId);
+  const pendingHeat = db.prepare('SELECT id FROM heat WHERE stage_id = ?').get(pendingStage.id);
+
+  // submitForReview on PENDING → throws 400
+  try { submitForReview(pendingHeat.id, hjId); assert('I06.06', false); }
+  catch (e) { check('I06.06: submitForReview on PENDING → 400', e.status, 400); }
+
+  // approveHeat on PENDING → throws 400
+  try { approveHeat(pendingHeat.id, hjId, null); assert('I06.07', false); }
+  catch (e) { check('I06.07: approveHeat on PENDING → 400', e.status, 400); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // TS-I05: Stage Progression (11 athletes → QUAL + LCQ + FINAL)
 // ═══════════════════════════════════════════════════════════════════════════
 log('TS-I05: Stage Progression');

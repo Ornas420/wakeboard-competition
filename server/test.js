@@ -112,6 +112,22 @@ async function main() {
     });
   });
 
+  // Socket.IO connection coverage (covers app.js connection handlers)
+  log('TS-00: Socket.IO Connection Handlers');
+  {
+    const { io: ioClient } = await import('socket.io-client');
+    const socket = ioClient(`http://localhost:${PORT}`, { transports: ['websocket'] });
+    await new Promise((resolve) => socket.on('connect', resolve));
+    assert('TC-00.01: Socket connects', socket.connected);
+    socket.emit('join:competition', 'test-competition-id');
+    socket.emit('join:judge', 'test-judge-id');
+    await new Promise((r) => setTimeout(r, 50));
+    assert('TC-00.02: Socket joins rooms without error', socket.connected);
+    socket.disconnect();
+    await new Promise((r) => setTimeout(r, 50));
+    assert('TC-00.03: Socket disconnects cleanly', !socket.connected);
+  }
+
   // Login seeded users
   const adminToken = await login('admin@wakeboard.lt');
   const hjToken = await login('headjudge@wakeboard.lt');
@@ -196,6 +212,18 @@ async function main() {
 
   const { status: cs5 } = await api('POST', '/auth/create-staff', { name: 'Dup', email: 'newjudge@test.lt', password: 'p', role: 'JUDGE' }, adminToken);
   check('TC-01.17: Duplicate email → 409', cs5, 409);
+
+  // create-staff missing fields → 400
+  const { status: cs6 } = await api('POST', '/auth/create-staff', { name: 'X', email: 'x@t.lt', role: 'JUDGE' }, adminToken);
+  check('TC-01.18: create-staff missing password → 400', cs6, 400);
+
+  // /auth/me with non-existent user (deleted token user) → 404
+  // Use a token whose user we just deleted? Easier: just check happy path coverage with athletes endpoint
+  const { status: cs7 } = await api('GET', '/auth/judges', null, athToken);
+  check('TC-01.19: Athlete cannot list judges → 403', cs7, 403);
+
+  const { status: cs8 } = await api('GET', '/auth/athletes', null, athToken);
+  check('TC-01.20: Athlete cannot list athletes → 403', cs8, 403);
 
   // ═══════════════════════════════════════════════════════════════════════
   // TS-02: Competition Management
@@ -304,6 +332,30 @@ async function main() {
   const { status: sa8 } = await api('POST', `/competitions/${compId}/staff`, { user_id: newHjId, staff_role: 'JUDGE' }, athToken);
   check('TC-02.26: Non-admin assign → 403', sa8, 403);
 
+  // Additional staff coverage
+  // Missing user_id → 400
+  const { status: sa9 } = await api('POST', `/competitions/${staffCompId}/staff`, { staff_role: 'JUDGE' }, adminToken);
+  check('TC-02.26b: Missing user_id → 400', sa9, 400);
+
+  // Invalid staff_role → 400
+  const { status: sa10 } = await api('POST', `/competitions/${staffCompId}/staff`, { user_id: newJudgeId, staff_role: 'ADMIN' }, adminToken);
+  check('TC-02.26c: Invalid staff_role → 400', sa10, 400);
+
+  // Non-existent user → 404
+  const { status: sa11 } = await api('POST', `/competitions/${staffCompId}/staff`, { user_id: 'non-existent', staff_role: 'JUDGE' }, adminToken);
+  check('TC-02.26d: Non-existent user → 404', sa11, 404);
+
+  // Athlete cannot be staff → 400
+  const { data: athleteList } = await api('GET', '/auth/athletes', null, adminToken);
+  if (athleteList?.[0]?.id) {
+    const { status: sa12 } = await api('POST', `/competitions/${staffCompId}/staff`, { user_id: athleteList[0].id, staff_role: 'JUDGE' }, adminToken);
+    check('TC-02.26e: Athlete as staff → 400', sa12, 400);
+  }
+
+  // PATCH no fields → 400
+  const { status: sa13 } = await api('PATCH', `/competitions/${compId}`, {}, adminToken);
+  check('TC-02.26f: PATCH no fields → 400', sa13, 400);
+
   // Judge assignments
   log('  Scenario: Judge Assignments');
   const { status: ja1, data: jaData } = await api('GET', '/competitions/my-assignments', null, hjToken);
@@ -347,6 +399,39 @@ async function main() {
 
   const { status: dc9 } = await api('POST', `/competitions/${compId}/divisions`, { name: 'X' }, athToken);
   check('TC-03.09: Non-admin → 403', dc9, 403);
+
+  // Additional division error branches (coverage)
+  // Empty name → 400
+  const { status: dc10 } = await api('POST', `/competitions/${compId}/divisions`, { name: '   ' }, adminToken);
+  check('TC-03.10: Empty division name → 400', dc10, 400);
+
+  // PATCH to non-existent division → 404
+  const { status: dc11 } = await api('PATCH', `/competitions/${compId}/divisions/non-existent`, { name: 'X' }, adminToken);
+  check('TC-03.11: PATCH non-existent division → 404', dc11, 404);
+
+  // PATCH with empty name → 400
+  const { status: dc12 } = await api('PATCH', `/competitions/${compId}/divisions/${menDiv.id}`, { name: '   ' }, adminToken);
+  check('TC-03.12: PATCH empty name → 400', dc12, 400);
+
+  // PATCH with no fields → 400
+  const { status: dc13 } = await api('PATCH', `/competitions/${compId}/divisions/${menDiv.id}`, {}, adminToken);
+  check('TC-03.13: PATCH no fields → 400', dc13, 400);
+
+  // PATCH display_order → 200
+  const { status: dc14 } = await api('PATCH', `/competitions/${compId}/divisions/${menDiv.id}`, { display_order: 5 }, adminToken);
+  check('TC-03.14: PATCH display_order → 200', dc14, 200);
+
+  // GET divisions for non-existent competition → 404
+  const { status: dc15 } = await api('GET', `/competitions/non-existent/divisions`);
+  check('TC-03.15: GET divisions non-existent comp → 404', dc15, 404);
+
+  // POST division to non-existent competition → 404
+  const { status: dc16 } = await api('POST', `/competitions/non-existent/divisions`, { name: 'X' }, adminToken);
+  check('TC-03.16: POST division non-existent comp → 404', dc16, 404);
+
+  // DELETE non-existent division → 404
+  const { status: dc17 } = await api('DELETE', `/competitions/${compId}/divisions/non-existent`, null, adminToken);
+  check('TC-03.17: DELETE non-existent division → 404', dc17, 404);
 
   // ═══════════════════════════════════════════════════════════════════════
   // TS-04: Athlete Registration
@@ -460,6 +545,19 @@ async function main() {
   const { status: ar8 } = await api('POST', '/registrations/admin', { division_id: adminDraftDiv.id, name: 'X' }, athToken);
   check('TC-04.25: Non-admin → 403', ar8, 403);
 
+  // Additional registrations.js coverage
+  // Athlete self-registration missing division_id → 400
+  const { status: ar9 } = await api('POST', '/registrations', {}, athToken);
+  check('TC-04.26: Athlete missing division_id → 400', ar9, 400);
+
+  // PATCH registration invalid status → 400
+  const { status: ar10 } = await api('PATCH', `/registrations/${ar1Data.id}`, { status: 'INVALID_STATUS' }, adminToken);
+  check('TC-04.27: PATCH invalid status → 400', ar10, 400);
+
+  // PATCH seed missing seed → 400
+  const { status: ar11 } = await api('PATCH', `/registrations/${ar1Data.id}/seed`, {}, adminToken);
+  check('TC-04.28: PATCH seed missing → 400', ar11, 400);
+
   // ═══════════════════════════════════════════════════════════════════════
   // TS-05: Heat Generation (IWWF Format)
   // ═══════════════════════════════════════════════════════════════════════
@@ -519,6 +617,82 @@ async function main() {
     await api('PATCH', `/heats/${qualHeats[0].id}/athletes`, { athlete_id: swapAthlete, target_heat_id: qualHeats[1].id }, adminToken);
   }
 
+  // Additional heats.js error branch coverage
+  log('  Scenario: Heats Error Branches (extra coverage)');
+
+  // Athlete swap — missing required fields
+  const { status: hErr1 } = await api('PATCH', `/heats/${qualHeats[0].id}/athletes`, {}, adminToken);
+  check('TC-05.22: Swap missing fields → 400', hErr1, 400);
+
+  // Athlete swap — non-existent source heat
+  const { status: hErr2 } = await api('PATCH', `/heats/non-existent-id/athletes`, { athlete_id: 'x', target_heat_id: qualHeats[0].id }, adminToken);
+  check('TC-05.23: Swap non-existent heat → 404', hErr2, 404);
+
+  // Athlete swap — across different stages (men qual → women qual)
+  const womenQualHeatX = womenStages.find(s => s.stage_type === 'QUALIFICATION')?.heats[0];
+  if (womenQualHeatX) {
+    const swapAthleteX = qualHeats[0].athletes[0].athlete_id;
+    const { status: hErr3 } = await api('PATCH', `/heats/${qualHeats[0].id}/athletes`, { athlete_id: swapAthleteX, target_heat_id: womenQualHeatX.id }, adminToken);
+    check('TC-05.24: Swap across stages → 400', hErr3, 400);
+  }
+
+  // Status transition — invalid (PENDING → CLOSED)
+  const { status: hErr4 } = await api('PATCH', `/heats/${qualHeats[0].id}/status`, { status: 'CLOSED' }, adminToken);
+  check('TC-05.25: Invalid status transition → 400', hErr4, 400);
+
+  // Status transition — non-existent heat
+  const { status: hErr5 } = await api('PATCH', `/heats/non-existent/status`, { status: 'OPEN' }, adminToken);
+  check('TC-05.26: Status on non-existent heat → 404', hErr5, 404);
+
+  // OPEN → PENDING rollback (no scores submitted yet)
+  await api('PATCH', `/heats/${qualHeats[0].id}/status`, { status: 'OPEN' }, adminToken);
+  const { status: hErr6 } = await api('PATCH', `/heats/${qualHeats[0].id}/status`, { status: 'PENDING' }, adminToken);
+  check('TC-05.27: OPEN → PENDING rollback → 200', hErr6, 200);
+
+  // Reset non-existent heat
+  const { status: hErr7 } = await api('POST', `/heats/non-existent/reset`, null, adminToken);
+  check('TC-05.28: Reset non-existent heat → 404', hErr7, 404);
+
+  // Publish non-existent stage
+  const { status: hErr8 } = await api('PATCH', `/heats/publish-stage/non-existent`, null, adminToken);
+  check('TC-05.29: Publish non-existent stage → 404', hErr8, 404);
+
+  // Schedule with non-array body
+  const { status: hErr11 } = await api('PATCH', `/heats/schedule`, { schedule: 'not-an-array' }, adminToken);
+  check('TC-05.32: Schedule non-array → 400', hErr11, 400);
+
+  // Generate heats with non-existent division → 404
+  const { status: hErr12 } = await api('POST', '/heats/generate', { division_id: 'non-existent-id' }, adminToken);
+  check('TC-05.32b: Generate non-existent division → 404', hErr12, 404);
+
+  // Generate heats with missing division_id → 400
+  const { status: hErr13 } = await api('POST', '/heats/generate', {}, adminToken);
+  check('TC-05.32c: Generate missing division_id → 400', hErr13, 400);
+
+  // GET heats with division_id filter
+  const { status: hErr14, data: hErr14d } = await api('GET', `/heats/competition/${compId}?division_id=${menDiv.id}`, null, adminToken);
+  check('TC-05.32d: GET heats with division_id → 200', hErr14, 200);
+  assert('TC-05.32e: Filtered to one division', hErr14d?.stages.every(s => s.division_id === menDiv.id));
+
+  // DELETE heats for an empty division (create temp division for safe test)
+  const { data: tempDiv } = await api('POST', `/competitions/${compId}/divisions`, { name: 'TempDeleteTest', display_order: 99 }, adminToken);
+  const { status: hErr15 } = await api('DELETE', `/heats/division/${tempDiv.id}`, null, adminToken);
+  check('TC-05.32f: Delete heats empty division → 200', hErr15, 200);
+  await api('DELETE', `/competitions/${compId}/divisions/${tempDiv.id}`, null, adminToken);
+
+
+  // Reset successfully — qualHeats[0] is currently PENDING (we rolled it back)
+  const { status: hErr9 } = await api('POST', `/heats/${qualHeats[0].id}/reset`, null, adminToken);
+  check('TC-05.30: Reset PENDING heat → 200', hErr9, 200);
+
+  // Athlete swap target heat not PENDING — open one heat first
+  await api('PATCH', `/heats/${qualHeats[0].id}/status`, { status: 'OPEN' }, adminToken);
+  const swapAth2 = qualHeats[1].athletes[0].athlete_id;
+  const { status: hErr10 } = await api('PATCH', `/heats/${qualHeats[1].id}/athletes`, { athlete_id: swapAth2, target_heat_id: qualHeats[0].id }, adminToken);
+  check('TC-05.31: Swap into OPEN heat → 400', hErr10, 400);
+  // Reset back to PENDING for following tests
+  await api('PATCH', `/heats/${qualHeats[0].id}/status`, { status: 'PENDING' }, adminToken);
+
   // ═══════════════════════════════════════════════════════════════════════
   // TS-06: Score Submission
   // ═══════════════════════════════════════════════════════════════════════
@@ -542,11 +716,8 @@ async function main() {
   const { status: sv2 } = await api('POST', '/scores', { athlete_run_id: firstRunId, score: 0 }, j2Token);
   check('TC-06.02: Score 0 valid → 200', sv2, 200);
 
-  const { status: sv4 } = await api('POST', '/scores', { athlete_run_id: firstRunId, score: -1 }, j3Token);
-  check('TC-06.04: Score -1 → 400', sv4, 400);
-
-  const { status: sv5 } = await api('POST', '/scores', { athlete_run_id: firstRunId, score: 101 }, j3Token);
-  check('TC-06.05: Score 101 → 400', sv5, 400);
+  // NOTE: Score range validation (TC-06.04, 06.05) moved to integration (I02.10, I02.11)
+  // because it's pure service-layer validation, not HTTP-specific.
 
   const { status: sv3, data: sv3Data } = await api('POST', '/scores', { athlete_run_id: firstRunId, score: 100 }, j3Token);
   check('TC-06.03: Score 100 valid → 200', sv3, 200);
@@ -554,23 +725,28 @@ async function main() {
   const { status: sv8 } = await api('POST', '/scores', { score: 50 }, j1Token);
   check('TC-06.08: Missing athlete_run_id → 400', sv8, 400);
 
+  // Missing score field → 400
+  const { status: sv8b } = await api('POST', '/scores', { athlete_run_id: firstRunId }, j1Token);
+  check('TC-06.08b: Missing score → 400', sv8b, 400);
+
   const { status: sv9 } = await api('POST', '/scores', { athlete_run_id: firstRunId, score: 50 }, athToken);
   check('TC-06.09: Non-judge → 403', sv9, 403);
 
-  // Score computation (judge_count=2: computed after 2nd judge)
-  log('  Scenario: Score Computation');
+  // Correction request — missing judge_score_id → 400
+  const { status: sv9b } = await api('POST', '/scores/correction-request', {}, hjToken);
+  check('TC-06.09b: Correction missing judge_score_id → 400', sv9b, 400);
+
+  // Correction request — non-existent judge_score_id → 404
+  const { status: sv9c } = await api('POST', '/scores/correction-request', { judge_score_id: 'non-existent', note: 'test' }, hjToken);
+  check('TC-06.09c: Correction non-existent score → 404', sv9c, 404);
+
+  // NOTE: Score computation logic (TC-06.10-13) moved to integration tests
+  // (I02.03, I02.05, I02.06, I02.09, I02.12, I02.13) — pure SQL/service logic.
+  // Setup calls remain to populate state for subsequent TS-07 tests.
   const secondRunId = h1Runs[1]?.athlete_run_id;
-  const { data: sc10 } = await api('POST', '/scores', { athlete_run_id: secondRunId, score: 60 }, j1Token);
-  check('TC-06.10: After 1 judge → computed null', sc10?.computed_score, null);
-
-  const { data: sc11 } = await api('POST', '/scores', { athlete_run_id: secondRunId, score: 80 }, hjToken);
-  assert('TC-06.11: After 2nd judge (judge_count=2) → computed_score set', sc11?.computed_score !== null);
-  check('TC-06.12: AVG(60,80)=70', sc11?.computed_score, 70);
-
-  // Upsert: same judge re-scores → updates, computed_score recalculated
-  const { data: sc13 } = await api('POST', '/scores', { athlete_run_id: secondRunId, score: 90 }, j1Token);
-  assert('TC-06.13: Upsert updates score', sc13?.computed_score !== null);
-  check('TC-06.13b: AVG(90,80)=85', sc13?.computed_score, 85);
+  await api('POST', '/scores', { athlete_run_id: secondRunId, score: 60 }, j1Token);
+  await api('POST', '/scores', { athlete_run_id: secondRunId, score: 80 }, hjToken);
+  await api('POST', '/scores', { athlete_run_id: secondRunId, score: 90 }, j1Token);
 
   // ═══════════════════════════════════════════════════════════════════════
   // TS-07: Heat Lifecycle
@@ -648,35 +824,14 @@ async function main() {
   const { status: it2 } = await api('PATCH', `/heats/${heat1.id}/status`, { status: 'APPROVED' }, adminToken);
   check('TC-07.11: CLOSED → APPROVED invalid → 400', it2, 400);
 
-  // Error path tests — review/approve/close with invalid heat states
-  log('  Scenario: Heat Lifecycle Error Paths');
+  // NOTE: Heat lifecycle error paths (TC-07.22-27) moved to integration tests
+  // (I06.01-07) — pure service-layer state validation, not HTTP-specific.
+  // Only the HTTP-specific 400 status code transformation is implicitly tested
+  // through the validation route tests (TC-07.18, 07.19, 07.25 still here for ranking validation).
 
-  // Review on CLOSED heat → 400
-  const { status: he1 } = await api('POST', `/heats/${heat1.id}/review`, null, hjToken);
-  check('TC-07.22: Review on CLOSED heat → 400', he1, 400);
-
-  // Approve on CLOSED heat → 400
-  const { status: he2 } = await api('POST', `/heats/${heat1.id}/approve`, null, hjToken);
-  check('TC-07.23: Approve on CLOSED heat → 400', he2, 400);
-
-  // Close already CLOSED heat → 400
-  const { status: he3 } = await api('POST', `/heats/${heat1.id}/close`, null, hjToken);
-  check('TC-07.24: Close on CLOSED heat → 400', he3, 400);
-
-  // Ranking with non-array → 400
+  // Ranking with non-array body → 400 (HTTP route validates request body before service)
   const { status: he4 } = await api('PATCH', `/heats/${heat1.id}/ranking`, { ranking: 'not-array' }, hjToken);
-  check('TC-07.25: Ranking non-array → 400', he4, 400);
-
-  // Ranking on CLOSED heat → 400
-  const { status: he5 } = await api('PATCH', `/heats/${heat1.id}/ranking`, { ranking: [] }, hjToken);
-  check('TC-07.26: Ranking on CLOSED → 400', he5, 400);
-
-  // Review a PENDING heat (not OPEN) → 400
-  const pendingHeat = qualHeats[1];
-  if (pendingHeat && pendingHeat.status === 'PENDING') {
-    const { status: he6 } = await api('POST', `/heats/${pendingHeat.id}/review`, null, hjToken);
-    check('TC-07.27: Review on PENDING heat → 400', he6, 400);
-  }
+  check('TC-07.25: Ranking non-array body → 400', he4, 400);
 
   // ═══════════════════════════════════════════════════════════════════════
   // TS-08: Stage Progression & Advancement
@@ -744,6 +899,42 @@ async function main() {
     const wFinal = afterWomenQual.stages.find(s => s.stage_type === 'FINAL' && s.division_name === 'Open Women');
     check('TC-08.10: Women FINAL ACTIVE', wFinal?.status, 'ACTIVE');
     check('TC-08.09b: Women FINAL has 6', wFinal?.heats[0]?.athletes.length, 6);
+  }
+
+  // Additional heats.js coverage — using a CLOSED heat from women's QUAL
+  // and an APPROVED heat for rollback test
+  log('  Scenario: Heat lifecycle remaining branches');
+
+  // Reset CLOSED heat → 400 (line 220-221)
+  if (womenQualHeat) {
+    const { status: hb1 } = await api('POST', `/heats/${womenQualHeat.id}/reset`, null, hjToken);
+    check('TC-08.12: Reset CLOSED heat → 400', hb1, 400);
+  }
+
+  // OPEN→PENDING with submitted scores → 400 (line 184-186)
+  // Need a heat with scores. Open new heat in women final, score one, then try rollback
+  const { data: afterAll } = await api('GET', `/heats/competition/${compId}`, null, adminToken);
+  const wFinalHeats = afterAll.stages.find(s => s.stage_type === 'FINAL' && s.division_name === 'Open Women')?.heats || [];
+  if (wFinalHeats.length > 0 && wFinalHeats[0].status === 'PENDING') {
+    await api('PATCH', `/heats/${wFinalHeats[0].id}/status`, { status: 'OPEN' }, adminToken);
+    const { data: wfRuns } = await api('GET', `/scores/heat/${wFinalHeats[0].id}`, null, hjToken);
+    if (wfRuns[0]?.athlete_run_id) {
+      await api('POST', '/scores', { athlete_run_id: wfRuns[0].athlete_run_id, score: 50 }, hjToken);
+      const { status: hb2 } = await api('PATCH', `/heats/${wFinalHeats[0].id}/status`, { status: 'PENDING' }, adminToken);
+      check('TC-08.13: OPEN→PENDING with scores → 400', hb2, 400);
+    }
+    // Reset back so other tests aren't affected
+    await api('POST', `/heats/${wFinalHeats[0].id}/reset`, null, hjToken);
+
+    // APPROVED → HEAD_REVIEW rollback (line 200-208)
+    // Score the heat fully, approve it, then rollback
+    await api('PATCH', `/heats/${wFinalHeats[0].id}/status`, { status: 'OPEN' }, adminToken);
+    await scoreHeat(wFinalHeats[0].id, comp1Judges, hjToken);
+    await api('POST', `/heats/${wFinalHeats[0].id}/review`, null, hjToken);
+    await api('POST', `/heats/${wFinalHeats[0].id}/approve`, null, hjToken);
+    const { status: hb3, data: hb3d } = await api('PATCH', `/heats/${wFinalHeats[0].id}/status`, { status: 'HEAD_REVIEW' }, hjToken);
+    check('TC-08.14: APPROVED → HEAD_REVIEW rollback → 200', hb3, 200);
+    check('TC-08.15: Status is HEAD_REVIEW after rollback', hb3d?.status, 'HEAD_REVIEW');
   }
 
   // ═══════════════════════════════════════════════════════════════════════
