@@ -272,6 +272,7 @@ export default function JudgeScoringPage() {
   const [actionError, setActionError] = useState('');
   const [rankingOrder, setRankingOrder] = useState([]);
   const [dragIdx, setDragIdx] = useState(null);
+  const [manualRankingSaved, setManualRankingSaved] = useState(false);
 
   const [divisions, setDivisions] = useState([]);
   const [selectedDivision, setSelectedDivision] = useState(null);
@@ -496,6 +497,8 @@ export default function JudgeScoringPage() {
 
   useEffect(() => {
     if (!allScoresComplete || athletes.length === 0) return;
+    // Don't override manually saved ranking — user's drag-and-drop order takes precedence
+    if (manualRankingSaved) return;
     const ranked = athletes.map(a => {
       const r1 = athleteRuns.find(r => r.athlete_id === a.athlete_id && r.run_number === 1)?.computed_score ?? 0;
       const r2 = athleteRuns.find(r => r.athlete_id === a.athlete_id && r.run_number === 2)?.computed_score ?? 0;
@@ -503,7 +506,12 @@ export default function JudgeScoringPage() {
     });
     ranked.sort((a, b) => b.best_score !== a.best_score ? b.best_score - a.best_score : b.second_score - a.second_score);
     setRankingOrder(ranked);
-  }, [allScoresComplete, athletes, athleteRuns]);
+  }, [allScoresComplete, athletes, athleteRuns, manualRankingSaved]);
+
+  // Reset manual ranking flag when heat changes or status changes from HEAD_REVIEW
+  useEffect(() => {
+    setManualRankingSaved(false);
+  }, [selectedHeatId, currentHeat?.status]);
 
   const handleDragStart = (idx) => setDragIdx(idx);
   const handleDragOver = (e) => e.preventDefault();
@@ -783,9 +791,12 @@ export default function JudgeScoringPage() {
                           ))}
                         </div>
                         <div className="flex gap-2">
-                          <button onClick={() => hjAction(() => api.patch(`/heats/${selectedHeatId}/ranking`, {
-                            ranking: rankingOrder.map((a, i) => ({ athlete_id: a.athlete_id, final_rank: i + 1 }))
-                          }))} disabled={actionLoading}
+                          <button onClick={async () => {
+                            await hjAction(() => api.patch(`/heats/${selectedHeatId}/ranking`, {
+                              ranking: rankingOrder.map((a, i) => ({ athlete_id: a.athlete_id, final_rank: i + 1 }))
+                            }));
+                            setManualRankingSaved(true);
+                          }} disabled={actionLoading}
                             className="flex-1 rounded-lg border border-navy-200 bg-white px-4 py-2.5 text-sm font-semibold text-navy-700 hover:bg-navy-50 disabled:opacity-50">
                             Save Ranking
                           </button>
